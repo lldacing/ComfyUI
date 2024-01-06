@@ -700,6 +700,9 @@ class ControlNetApply:
             return (conditioning, )
 
         c = []
+        # 左上方移动一个单位
+        # -1 表示在水平方向上向左移动一个单位。这意味着图像会向左移动一个像素。
+        # 1 表示在垂直方向上向上移动一个单位。这意味着图像会向上移动一个像素。
         control_hint = image.movedim(-1,1)
         for t in conditioning:
             n = [t[0], t[1].copy()]

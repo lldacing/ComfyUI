@@ -76,6 +76,13 @@ class FreeU_V2:
     CATEGORY = "_for_testing"
 
     def patch(self, model, b1, b2, s1, s2):
+        """
+        :param b1: backbone factor of the first stage block of decoder.
+        :param b2: backbone factor of the second stage block of decoder.
+        :param s1: skip factor of the first stage block of decoder.
+        :param s2: skip factor of the second stage block of decoder.
+        """
+
         model_channels = model.model.model_config.unet_config["model_channels"]
         scale_dict = {model_channels * 4: (b1, s1), model_channels * 2: (b2, s2)}
         on_cpu_devices = {}
