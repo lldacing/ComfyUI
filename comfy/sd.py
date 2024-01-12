@@ -255,22 +255,29 @@ class VAE:
         return output.movedim(1,-1)
 
     def encode(self, pixel_samples):
+        # 将pixel_samples的维度从最后一维移动到第二维，其它维度顺序不变 (batch_size, H, W, channel) 转成 (batch_size, channel, H, W)
         pixel_samples = pixel_samples.movedim(-1,1)
         try:
+            # 计算用于编码图像所需的内存量
             memory_used = self.memory_used_encode(pixel_samples.shape, self.vae_dtype)
+            # 将模型加载到GPU中
             model_management.load_models_gpu([self.patcher], memory_required=memory_used)
+            # 计算可用内存并确定每个批次的大小
             free_memory = model_management.get_free_memory(self.device)
             batch_number = int(free_memory / memory_used)
             batch_number = max(1, batch_number)
+            # 创建一个空张量samples，用于存储编码后的图像
             samples = torch.empty((pixel_samples.shape[0], self.latent_channels, round(pixel_samples.shape[2] // self.downscale_ratio), round(pixel_samples.shape[3] // self.downscale_ratio)), device=self.output_device)
+            # 将输入图像分成多个批次，并使用VAE的编码器对每个批次进行编码
             for x in range(0, pixel_samples.shape[0], batch_number):
                 pixels_in = (2. * pixel_samples[x:x+batch_number] - 1.).to(self.vae_dtype).to(self.device)
                 samples[x:x+batch_number] = self.first_stage_model.encode(pixels_in).to(self.output_device).float()
 
         except model_management.OOM_EXCEPTION as e:
+            # 如果函数在编码图像时遇到内存不足的情况，则会使用tiled VAE encoding进行重试
             print("Warning: Ran out of memory when regular VAE encoding, retrying with tiled VAE encoding.")
             samples = self.encode_tiled_(pixel_samples)
-
+        # 返回编码后的图像
         return samples
 
     def encode_tiled(self, pixel_samples, tile_x=512, tile_y=512, overlap = 64):

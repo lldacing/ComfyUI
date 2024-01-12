@@ -330,17 +330,37 @@ class VAEEncodeForInpaint:
     CATEGORY = "latent/inpaint"
 
     def encode(self, vae, pixels, mask, grow_mask_by=6):
+        """
+        该函数首先使用双线性插值将掩码调整为与输入图像的尺寸相同。
+        然后，它将输入图像和掩码裁剪到两个维度的最近8个像素的倍数。
+        然后，掩码被侵蚀了几个像素，以确保在潜在空间中编码的图像是无缝的。
+        最后，该函数从每个像素值中减去0.5，将像素值缩放为掩码的倒数，并将0.5添加回每个像素值。
+        然后，将结果张量通过VAE的编码器，以获得图像的潜在表示。
+        Args:
+            vae:
+            pixels: 输入图像，它是一个形状为(batch_size, height, width, channels)的张量。
+            mask: mask张量是与pixels相同形状的二进制掩码，其中1表示应包含相应的像素在编码中（即白底的要变的），0表示应排除相应的像素（黑底的维持不变的）。(1, H, W)
+            grow_mask_by: 指定在对图像进行编码之前应将掩码增加多少
+
+        Returns: 一个包含编码样本和噪声掩码的字典
+
+        """
+        # 计算输入图像的宽和高的最近8个像素的倍数
         x = (pixels.shape[1] // 8) * 8
         y = (pixels.shape[2] // 8) * 8
+        # 使用双线性插值将掩码调整为与输入图像的尺寸相同
         mask = torch.nn.functional.interpolate(mask.reshape((-1, 1, mask.shape[-2], mask.shape[-1])), size=(pixels.shape[1], pixels.shape[2]), mode="bilinear")
 
         pixels = pixels.clone()
+        # 如果输入图像的宽或高不是8的倍数，则将其裁剪到最近的8的倍数
         if pixels.shape[1] != x or pixels.shape[2] != y:
+            # 高度对8求余数，然后除以2向下取整
             x_offset = (pixels.shape[1] % 8) // 2
             y_offset = (pixels.shape[2] % 8) // 2
             pixels = pixels[:,x_offset:x + x_offset, y_offset:y + y_offset,:]
             mask = mask[:,:,x_offset:x + x_offset, y_offset:y + y_offset]
 
+        # 将掩码向外扩张几个像素，以确保在潜在空间中编码的图像是无缝的
         #grow mask by a few pixels to keep things seamless in latent space
         if grow_mask_by == 0:
             mask_erosion = mask
@@ -350,11 +370,14 @@ class VAEEncodeForInpaint:
 
             mask_erosion = torch.clamp(torch.nn.functional.conv2d(mask.round(), kernel_tensor, padding=padding), 0, 1)
 
+        # 将mask张量的每个元素舍入到最近的整数，然后取反，如果第2维度（从0维度开始计数）长度是1，就删掉该维度
         m = (1.0 - mask.round()).squeeze(1)
+        # 将像素值减去0.5，然后乘以掩码的倒数，最后将0.5添加回每个像素值
         for i in range(3):
             pixels[:,:,:,i] -= 0.5
             pixels[:,:,:,i] *= m
             pixels[:,:,:,i] += 0.5
+        # 将结果张量通过VAE的编码器，以获得图像的潜在表示
         t = vae.encode(pixels)
 
         return ({"samples":t, "noise_mask": (mask_erosion[:,:,:x,:y].round())}, )
@@ -1412,30 +1435,44 @@ class LoadImage:
     RETURN_TYPES = ("IMAGE", "MASK")
     FUNCTION = "load_image"
     def load_image(self, image):
+        # 获取图像的路径
         image_path = folder_paths.get_annotated_filepath(image)
+        # 打开图像
         img = Image.open(image_path)
+        # 初始化输出图像和掩码列表
         output_images = []
         output_masks = []
+        # 遍历图像的每一帧
         for i in ImageSequence.Iterator(img):
+            # 旋转图像
             i = ImageOps.exif_transpose(i)
+            # 将图像转换为RGB格式
             image = i.convert("RGB")
+            # 将图像转换为浮点数组 (H,W,Channel)
             image = np.array(image).astype(np.float32) / 255.0
+            # 先把图片转成3维张量，并再在最前面添加一个维度，变成4维(1, H, W,Channel)
             image = torch.from_numpy(image)[None,]
+            # 如果图像包含alpha通道，则将其转换为掩码
             if 'A' in i.getbands():
+                # 计算后结果数组中透明像素会是0
                 mask = np.array(i.getchannel('A')).astype(np.float32) / 255.0
+                # 把数组中透明像素设为1
                 mask = 1. - torch.from_numpy(mask)
             else:
+                # 否则，创建一个64x64的零张量作为掩码
                 mask = torch.zeros((64,64), dtype=torch.float32, device="cpu")
+            # 将图像和掩码添加到输出列表中
             output_images.append(image)
             output_masks.append(mask.unsqueeze(0))
-
+        # 如果有多个图像，则将它们按维度0拼接在一起
         if len(output_images) > 1:
             output_image = torch.cat(output_images, dim=0)
             output_mask = torch.cat(output_masks, dim=0)
+        # 否则，返回单个图像和掩码
         else:
             output_image = output_images[0]
             output_mask = output_masks[0]
-
+        # 返回输出图像和掩码
         return (output_image, output_mask)
 
     @classmethod
