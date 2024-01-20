@@ -246,6 +246,7 @@ class VAE:
             print("Warning: Ran out of memory when regular VAE decoding, retrying with tiled VAE decoding.")
             pixel_samples = self.decode_tiled_(samples_in)
 
+        # 将pixel_samples的维度从第二维移动到最后一维，其它维度顺序不变 (batch_size, channel, H, W) 转成 (batch_size, H, W, channel)
         pixel_samples = pixel_samples.to(self.output_device).movedim(1,-1)
         return pixel_samples
 
