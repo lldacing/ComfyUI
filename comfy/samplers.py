@@ -326,21 +326,39 @@ def normal_scheduler(model, steps, sgm=False, floor=False):
     return torch.FloatTensor(sigs)
 
 def get_mask_aabb(masks):
+    """
+    根据输入的掩码计算边界框（Axis-Aligned Bounding Box，AABB）。
+
+    Args:
+        masks (torch.Tensor): 输入的掩码张量，形状为 (b, h, w)，其中 b 是批次大小，h 和 w 是掩码的高度和宽度。
+
+    Returns:
+        torch.Tensor: 包含边界框的张量，形状为 (b, 4)，其中每行对应一个边界框，包含左上角和右下角的坐标。
+        torch.Tensor: 一个布尔张量，形状为 (b,)，表示每个掩码是否为空。
+    """
+    # 如果输入的掩码张量为空，直接返回一个空的边界框张量
     if masks.numel() == 0:
         return torch.zeros((0, 4), device=masks.device, dtype=torch.int)
 
+    # 获取批次大小
     b = masks.shape[0]
 
+    # 初始化边界框张量和空掩码标志张量
     bounding_boxes = torch.zeros((b, 4), device=masks.device, dtype=torch.int)
     is_empty = torch.zeros((b), device=masks.device, dtype=torch.bool)
+    # 遍历每个批次中的掩码
     for i in range(b):
         mask = masks[i]
+        # 如果掩码为空，跳过当前批次（mask张量中元素个数为0）
         if mask.numel() == 0:
             continue
+        # 检查掩码是否全为零
         if torch.max(mask != 0) == False:
             is_empty[i] = True
             continue
+        # 获取掩码中非零像素的坐标
         y, x = torch.where(mask)
+        # 计算边界框的左上角和右下角坐标
         bounding_boxes[i, 0] = torch.min(x)
         bounding_boxes[i, 1] = torch.min(y)
         bounding_boxes[i, 2] = torch.max(x)
