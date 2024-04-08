@@ -134,6 +134,7 @@ def sample_euler(model, x, sigmas, extra_args=None, callback=None, disable=None,
         if gamma > 0:
             eps = torch.randn_like(x) * s_noise
             x = x + eps * (sigma_hat ** 2 - sigmas[i] ** 2) ** 0.5
+        # 会调用模型的forword方法
         denoised = model(x, sigma_hat * s_in, **extra_args)
         d = to_d(x, sigma_hat, denoised)
         if callback is not None:

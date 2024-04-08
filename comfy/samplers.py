@@ -548,6 +548,7 @@ class KSAMPLER(Sampler):
 
     def sample(self, model_wrap, sigmas, extra_args, callback, noise, latent_image=None, denoise_mask=None, disable_pbar=False):
         extra_args["denoise_mask"] = denoise_mask
+        # 局部重绘--噪声遮罩
         model_k = KSamplerX0Inpaint(model_wrap, sigmas)
         model_k.latent_image = latent_image
         if self.inpaint_options.get("random", False): #TODO: Should this be the default?
@@ -563,6 +564,7 @@ class KSAMPLER(Sampler):
         if callback is not None:
             k_callback = lambda x: callback(x["i"], x["denoised"], x["x"], total_steps)
 
+        # 执行采样方法, sampling.py中"sample_{采样名称}"方法
         samples = self.sampler_function(model_k, noise, sigmas, extra_args=extra_args, callback=k_callback, disable=disable_pbar, **self.extra_options)
         return samples
 

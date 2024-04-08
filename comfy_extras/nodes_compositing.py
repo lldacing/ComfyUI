@@ -156,8 +156,11 @@ class SplitImageWithAlpha:
     FUNCTION = "split_image_with_alpha"
 
     def split_image_with_alpha(self, image: torch.Tensor):
+        # RGB三通道
         out_images = [i[:,:,:3] for i in image]
+        # alpha通道，如果没有就生成全1的alpha通道
         out_alphas = [i[:,:,3] if i.shape[2] > 3 else torch.ones_like(i[:,:,0]) for i in image]
+        # 遮罩颜色和alpha的数值是相反的
         result = (torch.stack(out_images), 1.0 - torch.stack(out_alphas))
         return result
 
@@ -180,8 +183,10 @@ class JoinImageWithAlpha:
         batch_size = min(len(image), len(alpha))
         out_images = []
 
+        # 遮罩的黑白当做alpha通道的不透明度，黑色是0，白色是1，alpha中要保留的是1，不要保留的是0，正好和遮罩值相反，所以取反值
         alpha = 1.0 - resize_mask(alpha, image.shape[1:])
         for i in range(batch_size):
+           # alpha通道拼接到原图像的RGB中
            out_images.append(torch.cat((image[i][:,:,:3], alpha[i].unsqueeze(2)), dim=2))
 
         result = (torch.stack(out_images),)

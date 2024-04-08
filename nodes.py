@@ -1231,6 +1231,21 @@ class LatentComposite:
     CATEGORY = "latent"
 
     def composite(self, samples_to, samples_from, x, y, composite_method="normal", feather=0):
+        """
+        将源图像合成到目标图像上的函数。
+
+        Args:
+            samples_to (torch.Tensor): 目标图像样本。
+            samples_from (torch.Tensor): 源图像样本。
+            x (int): X坐标，用于放置源图像。
+            y (int): Y坐标，用于放置源图像。
+            composite_method (str, optional): 合成方法（默认为“normal”）。
+            feather (int, optional): 羽化因子（默认为0）。
+
+        Returns:
+            torch.Tensor: 合成结果。
+        """
+        # 将坐标转换为8的倍数
         x =  x // 8
         y = y // 8
         feather = feather // 8
@@ -1239,11 +1254,14 @@ class LatentComposite:
         samples_to = samples_to["samples"]
         samples_from = samples_from["samples"]
         if feather == 0:
+            # 如果没有羽化，直接将源图像(x,y)后边的数据复制到目标图像上
             s[:,:,y:y+samples_from.shape[2],x:x+samples_from.shape[3]] = samples_from[:,:,:samples_to.shape[2] - y, :samples_to.shape[3] - x]
         else:
+            # 创建一个羽化遮罩
             samples_from = samples_from[:,:,:samples_to.shape[2] - y, :samples_to.shape[3] - x]
             mask = torch.ones_like(samples_from)
             for t in range(feather):
+                # 四条边线性渐变
                 if y != 0:
                     mask[:,:,t:1+t,:] *= ((1.0/feather) * (t + 1))
 
@@ -1254,6 +1272,7 @@ class LatentComposite:
                 if x + samples_from.shape[3] < samples_to.shape[3]:
                     mask[:,:,:,mask.shape[3]- 1 - t: mask.shape[3]- t] *= ((1.0/feather) * (t + 1))
             rev_mask = torch.ones_like(mask) - mask
+            # 使用遮罩进行合成
             s[:,:,y:y+samples_from.shape[2],x:x+samples_from.shape[3]] = samples_from[:,:,:samples_to.shape[2] - y, :samples_to.shape[3] - x] * mask + s[:,:,y:y+samples_from.shape[2],x:x+samples_from.shape[3]] * rev_mask
         samples_out["samples"] = s
         return (samples_out,)
