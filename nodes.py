@@ -10,13 +10,13 @@ import time
 import random
 import logging
 
-from PIL import Image, ImageOps, ImageSequence
+from PIL import Image, ImageOps, ImageSequence, ImageFile
 from PIL.PngImagePlugin import PngInfo
+
 import numpy as np
 import safetensors.torch
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "comfy"))
-
 
 import comfy.diffusers_load
 import comfy.samplers
@@ -519,7 +519,7 @@ class CheckpointLoader:
 
     CATEGORY = "advanced/loaders"
 
-    def load_checkpoint(self, config_name, ckpt_name, output_vae=True, output_clip=True):
+    def load_checkpoint(self, config_name, ckpt_name):
         config_path = folder_paths.get_full_path("configs", config_name)
         ckpt_path = folder_paths.get_full_path("checkpoints", ckpt_name)
         return comfy.sd.load_checkpoint(config_path, ckpt_path, output_vae=True, output_clip=True, embedding_directory=folder_paths.get_folder_paths("embeddings"))
@@ -534,7 +534,7 @@ class CheckpointLoaderSimple:
 
     CATEGORY = "loaders"
 
-    def load_checkpoint(self, ckpt_name, output_vae=True, output_clip=True):
+    def load_checkpoint(self, ckpt_name):
         ckpt_path = folder_paths.get_full_path("checkpoints", ckpt_name)
         out = comfy.sd.load_checkpoint_guess_config(ckpt_path, output_vae=True, output_clip=True, embedding_directory=folder_paths.get_folder_paths("embeddings"))
         return out[:3]
@@ -606,8 +606,8 @@ class LoraLoader:
         return {"required": { "model": ("MODEL",),
                               "clip": ("CLIP", ),
                               "lora_name": (folder_paths.get_filename_list("loras"), ),
-                              "strength_model": ("FLOAT", {"default": 1.0, "min": -20.0, "max": 20.0, "step": 0.01}),
-                              "strength_clip": ("FLOAT", {"default": 1.0, "min": -20.0, "max": 20.0, "step": 0.01}),
+                              "strength_model": ("FLOAT", {"default": 1.0, "min": -100.0, "max": 100.0, "step": 0.01}),
+                              "strength_clip": ("FLOAT", {"default": 1.0, "min": -100.0, "max": 100.0, "step": 0.01}),
                               }}
     RETURN_TYPES = ("MODEL", "CLIP")
     FUNCTION = "load_lora"
@@ -640,7 +640,7 @@ class LoraLoaderModelOnly(LoraLoader):
     def INPUT_TYPES(s):
         return {"required": { "model": ("MODEL",),
                               "lora_name": (folder_paths.get_filename_list("loras"), ),
-                              "strength_model": ("FLOAT", {"default": 1.0, "min": -20.0, "max": 20.0, "step": 0.01}),
+                              "strength_model": ("FLOAT", {"default": 1.0, "min": -100.0, "max": 100.0, "step": 0.01}),
                               }}
     RETURN_TYPES = ("MODEL",)
     FUNCTION = "load_lora_model_only"
@@ -844,7 +844,7 @@ class CLIPLoader:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": { "clip_name": (folder_paths.get_filename_list("clip"), ),
-                              "type": (["stable_diffusion", "stable_cascade"], ),
+                              "type": (["stable_diffusion", "stable_cascade", "sd3"], ),
                              }}
     RETURN_TYPES = ("CLIP",)
     FUNCTION = "load_clip"
@@ -855,6 +855,8 @@ class CLIPLoader:
         clip_type = comfy.sd.CLIPType.STABLE_DIFFUSION
         if type == "stable_cascade":
             clip_type = comfy.sd.CLIPType.STABLE_CASCADE
+        elif type == "sd3":
+            clip_type = comfy.sd.CLIPType.SD3
 
         clip_path = folder_paths.get_full_path("clip", clip_name)
         clip = comfy.sd.load_clip(ckpt_paths=[clip_path], embedding_directory=folder_paths.get_folder_paths("embeddings"), clip_type=clip_type)
@@ -863,17 +865,24 @@ class CLIPLoader:
 class DualCLIPLoader:
     @classmethod
     def INPUT_TYPES(s):
-        return {"required": { "clip_name1": (folder_paths.get_filename_list("clip"), ), "clip_name2": (folder_paths.get_filename_list("clip"), ),
+        return {"required": { "clip_name1": (folder_paths.get_filename_list("clip"), ),
+                              "clip_name2": (folder_paths.get_filename_list("clip"), ),
+                              "type": (["sdxl", "sd3"], ),
                              }}
     RETURN_TYPES = ("CLIP",)
     FUNCTION = "load_clip"
 
     CATEGORY = "advanced/loaders"
 
-    def load_clip(self, clip_name1, clip_name2):
+    def load_clip(self, clip_name1, clip_name2, type):
         clip_path1 = folder_paths.get_full_path("clip", clip_name1)
         clip_path2 = folder_paths.get_full_path("clip", clip_name2)
-        clip = comfy.sd.load_clip(ckpt_paths=[clip_path1, clip_path2], embedding_directory=folder_paths.get_folder_paths("embeddings"))
+        if type == "sdxl":
+            clip_type = comfy.sd.CLIPType.STABLE_DIFFUSION
+        elif type == "sd3":
+            clip_type = comfy.sd.CLIPType.SD3
+
+        clip = comfy.sd.load_clip(ckpt_paths=[clip_path1, clip_path2], embedding_directory=folder_paths.get_folder_paths("embeddings"), clip_type=clip_type)
         return (clip,)
 
 class CLIPVisionLoader:
@@ -1344,6 +1353,8 @@ class SetLatentNoiseMask:
 
 def common_ksampler(model, seed, steps, cfg, sampler_name, scheduler, positive, negative, latent, denoise=1.0, disable_noise=False, start_step=None, last_step=None, force_full_denoise=False):
     latent_image = latent["samples"]
+    latent_image = comfy.sample.fix_empty_latent_channels(model, latent_image)
+
     if disable_noise:
         noise = torch.zeros(latent_image.size(), dtype=latent_image.dtype, layout=latent_image.layout, device="cpu")
     else:
@@ -1502,19 +1513,31 @@ class LoadImage:
     def load_image(self, image):
         # 获取图像的路径
         image_path = folder_paths.get_annotated_filepath(image)
-        # 打开图像
-        img = Image.open(image_path)
-        # 初始化输出图像和掩码列表
+
+        img = node_helpers.pillow(Image.open, image_path)
+
         output_images = []
         output_masks = []
+        w, h = None, None
+
+        excluded_formats = ['MPO']
         # 遍历图像的每一帧
         for i in ImageSequence.Iterator(img):
             # 旋转图像
-            i = ImageOps.exif_transpose(i)
+            i = node_helpers.pillow(ImageOps.exif_transpose, i)
+
             if i.mode == 'I':
                 i = i.point(lambda i: i * (1 / 255))
             # 将图像转换为RGB格式
             image = i.convert("RGB")
+
+            if len(output_images) == 0:
+                w = image.size[0]
+                h = image.size[1]
+
+            if image.size[0] != w or image.size[1] != h:
+                continue
+
             # 将图像转换为浮点数组 (H,W,Channel)
             image = np.array(image).astype(np.float32) / 255.0
             # 先把图片转成3维张量，并再在最前面添加一个维度，变成4维(1, H, W,Channel)
@@ -1531,8 +1554,9 @@ class LoadImage:
             # 将图像和掩码添加到输出列表中
             output_images.append(image)
             output_masks.append(mask.unsqueeze(0))
-        # 如果有多个图像，则将它们按维度0拼接在一起
-        if len(output_images) > 1:
+
+        if len(output_images) > 1 and img.format not in excluded_formats:
+            # 如果有多个图像，则将它们按维度0拼接在一起
             output_image = torch.cat(output_images, dim=0)
             output_mask = torch.cat(output_masks, dim=0)
         # 否则，返回单个图像和掩码
@@ -1574,8 +1598,8 @@ class LoadImageMask:
     FUNCTION = "load_image"
     def load_image(self, image, channel):
         image_path = folder_paths.get_annotated_filepath(image)
-        i = Image.open(image_path)
-        i = ImageOps.exif_transpose(i)
+        i = node_helpers.pillow(Image.open, image_path)
+        i = node_helpers.pillow(ImageOps.exif_transpose, i)
         if i.getbands() != ("R", "G", "B", "A"):
             if i.mode == 'I':
                 i = i.point(lambda i: i * (1 / 255))
@@ -2002,6 +2026,11 @@ def init_custom_nodes():
         "nodes_ip2p.py",
         "nodes_model_merging_model_specific.py",
         "nodes_pag.py",
+        "nodes_align_your_steps.py",
+        "nodes_attention_multiply.py",
+        "nodes_advanced_samplers.py",
+        "nodes_webcam.py",
+        "nodes_sd3.py",
     ]
 
     import_failed = []
