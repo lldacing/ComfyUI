@@ -75,6 +75,7 @@ fpte_group.add_argument("--fp8_e5m2-text-enc", action="store_true", help="Store 
 fpte_group.add_argument("--fp16-text-enc", action="store_true", help="Store text encoder weights in fp16.")
 fpte_group.add_argument("--fp32-text-enc", action="store_true", help="Store text encoder weights in fp32.")
 
+parser.add_argument("--force-channels-last", action="store_true", help="Force channels last format when inferencing the models.")
 
 parser.add_argument("--directml", type=int, nargs="?", metavar="DIRECTML_DEVICE", const=-1, help="Use torch-directml.")
 
@@ -117,6 +118,7 @@ parser.add_argument("--quick-test-for-ci", action="store_true", help="Quick test
 parser.add_argument("--windows-standalone-build", action="store_true", help="Windows standalone build: Enable convenient things that most people using the standalone windows build will probably enjoy (like auto opening the page on startup).")
 
 parser.add_argument("--disable-metadata", action="store_true", help="Disable saving prompt metadata in files.")
+parser.add_argument("--disable-all-custom-nodes", action="store_true", help="Disable loading all custom nodes.")
 
 parser.add_argument("--multi-user", action="store_true", help="Enables per-user storage.")
 
