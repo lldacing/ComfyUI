@@ -12,13 +12,28 @@ class EPS:
         return model_input - model_output * sigma
 
     def noise_scaling(self, sigma, noise, latent_image, max_denoise=False):
+        """
+        根据给定的噪声水平和是否最大化去噪的标志，对噪声进行缩放。
+
+        参数:
+        sigma (float): 输入噪声的标准差。
+        noise (Tensor): 待处理的噪声张量。
+        latent_image (Tensor): 原始潜在图像张量，用于与噪声相加。
+        max_denoise (bool, 可选): 指示是否最大化去噪。默认为False。
+
+        返回:
+        Tensor: 缩放后的噪声张量，已与潜在图像相加。
+        """
+        # 根据是否最大化去噪来调整噪声的缩放因子
         if max_denoise:
             noise = noise * torch.sqrt(1.0 + sigma ** 2.0)
         else:
             noise = noise * sigma
 
+        # 将缩放后的噪声与潜在图像相加，得到最终的输出
         noise += latent_image
         return noise
+
 
     def inverse_noise_scaling(self, sigma, latent):
         return latent
@@ -34,18 +49,73 @@ class EDM(V_PREDICTION):
         return model_input * self.sigma_data ** 2 / (sigma ** 2 + self.sigma_data ** 2) + model_output * sigma * self.sigma_data / (sigma ** 2 + self.sigma_data ** 2) ** 0.5
 
 class CONST:
+    """
+    该类定义了一些常量和方法，用于处理图像去噪和噪声缩放。
+
+    方法:
+    - calculate_input: 根据给定的噪声水平，计算输入图像中的噪声。
+    - calculate_denoised: 计算去噪后的图像，通过减去模型输出与噪声水平的乘积。
+    - noise_scaling: 根据噪声水平，对噪声和潜在图像进行加权混合。
+    - inverse_noise_scaling: 根据噪声水平，反向调整潜在图像。
+    """
+
     def calculate_input(self, sigma, noise):
+        """
+        计算输入图像中的噪声。
+
+        参数:
+        sigma (Tensor): 噪声水平。
+        noise (Tensor): 输入图像中的噪声。
+
+        返回:
+        Tensor: 与噪声水平相关的噪声。
+        """
         return noise
 
     def calculate_denoised(self, sigma, model_output, model_input):
+        """
+        计算去噪后的图像。
+
+        参数:
+        sigma (Tensor): 噪声水平。
+        model_output (Tensor): 模型的输出图像。
+        model_input (Tensor): 模型的输入图像。
+
+        返回:
+        Tensor: 去噪后的图像，通过调整模型输出与噪声水平的乘积得到。
+        """
+        # 调整sigma的形状，使其与model_output匹配，以便进行元素-wise乘法
         sigma = sigma.view(sigma.shape[:1] + (1,) * (model_output.ndim - 1))
         return model_input - model_output * sigma
 
     def noise_scaling(self, sigma, noise, latent_image, max_denoise=False):
+        """
+        根据噪声水平，对噪声和潜在图像进行加权混合。
+
+        参数:
+        sigma (Tensor): 噪声水平。
+        noise (Tensor): 输入图像中的噪声。
+        latent_image (Tensor): 潜在的干净图像。
+        max_denoise (bool): 是否使用最大去噪模式，默认为False。
+
+        返回:
+        Tensor: 根据噪声水平加权混合后的图像。
+        """
         return sigma * noise + (1.0 - sigma) * latent_image
 
     def inverse_noise_scaling(self, sigma, latent):
+        """
+        根据噪声水平，反向调整潜在图像。
+
+        参数:
+        sigma (Tensor): 噪声水平。
+        latent (Tensor): 潜在图像。
+
+        返回:
+        Tensor: 调整后的潜在图像。
+        """
         return latent / (1.0 - sigma)
+
 
 class ModelSamplingDiscrete(torch.nn.Module):
     def __init__(self, model_config=None):

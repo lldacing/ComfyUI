@@ -118,6 +118,7 @@ def prompt_worker(q, server):
             prompt_id = item[1]
             server.last_prompt_id = prompt_id
 
+            # prompt, prompt_id, extra_data, execute_outputs
             e.execute(item[2], prompt_id, item[3], item[4])
             need_gc = True
             q.task_done(item_id,

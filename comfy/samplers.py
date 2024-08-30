@@ -287,19 +287,51 @@ def sampling_function(model, x, timestep, uncond, cond, cond_scale, model_option
 
 
 class KSamplerX0Inpaint:
+    """
+    KSamplerX0Inpaint 类用于实现一种特定的图像修复算法。
+    它利用给定的模型和高斯噪声标准差列表对图像进行处理。
+    """
+
     def __init__(self, model, sigmas):
+        """
+        初始化 KSamplerX0Inpaint 类实例。
+
+        参数:
+        model: 用于图像处理的模型。
+        sigmas: 高斯噪声的标准差列表。
+        """
         self.inner_model = model
         self.sigmas = sigmas
+
     def __call__(self, x, sigma, denoise_mask, model_options={}, seed=None):
+        """
+        对图像进行修复和降噪处理。
+
+        参数:
+        x: 输入的图像数据。
+        sigma: 当前处理的高斯噪声标准差。
+        denoise_mask: 降噪掩码，指示图像中哪些部分需要进行降噪处理。
+        model_options: 模型选项，可以包含特定于模型的参数。
+        seed: 随机种子，用于确保结果的可复现性。
+
+        返回:
+        处理后的图像数据。
+        """
+        # 如果提供了降噪掩码，则根据模型选项中的函数对其进行处理
         if denoise_mask is not None:
             if "denoise_mask_function" in model_options:
                 denoise_mask = model_options["denoise_mask_function"](sigma, denoise_mask, extra_options={"model": self.inner_model, "sigmas": self.sigmas})
+            # 计算需要进行修复的图像部分的掩码
             latent_mask = 1. - denoise_mask
+            # 根据噪声标准差和掩码对图像进行修复和降噪
             x = x * denoise_mask + self.inner_model.inner_model.model_sampling.noise_scaling(sigma.reshape([sigma.shape[0]] + [1] * (len(self.noise.shape) - 1)), self.noise, self.latent_image) * latent_mask
+        # 使用内部模型对图像进行进一步处理
         out = self.inner_model(x, sigma, model_options=model_options, seed=seed)
+        # 如果提供了降噪掩码，则将修复后的图像与原始图像相结合
         if denoise_mask is not None:
             out = out * denoise_mask + self.latent_image * latent_mask
         return out
+
 
 def simple_scheduler(model_sampling, steps):
     s = model_sampling
@@ -583,8 +615,26 @@ class Sampler:
         pass
 
     def max_denoise(self, model_wrap, sigmas):
+        """
+        判断给定的sigma值是否大于或等于模型的最大噪声阈值。
+
+        此函数用于确定是否应该使用最大噪声抑制。它比较输入的sigma值
+        和模型内部设定的最大噪声阈值，如果输入值等于或大于这个阈值，
+        则返回True，表示应该应用最大噪声抑制。
+
+        参数:
+        model_wrap - 包含模型信息的封装对象。
+        sigmas - 一个包含sigma值的列表。
+
+        返回:
+        如果输入的sigma值等于或大于模型的最大噪声阈值，则返回True；
+        否则返回False。
+        """
+        # 获取模型的最大噪声阈值
         max_sigma = float(model_wrap.inner_model.model_sampling.sigma_max)
+        # 获取输入的sigma值
         sigma = float(sigmas[0])
+        # 判断输入的sigma值是否等于或大于模型的最大噪声阈值
         return math.isclose(max_sigma, sigma, rel_tol=1e-05) or sigma > max_sigma
 
 KSAMPLER_NAMES = ["euler", "euler_cfg_pp", "euler_ancestral", "euler_ancestral_cfg_pp", "heun", "heunpp2","dpm_2", "dpm_2_ancestral",
@@ -593,32 +643,69 @@ KSAMPLER_NAMES = ["euler", "euler_cfg_pp", "euler_ancestral", "euler_ancestral_c
                   "ipndm", "ipndm_v", "deis"]
 
 class KSAMPLER(Sampler):
+    """
+    K采样器类，继承自Sampler基类。
+
+    该类用于实现特定的采样算法，通过提供的采样函数和额外选项来执行采样过程。
+
+    参数:
+    - sampler_function: 一个函数，定义了具体的采样算法。
+    - extra_options: 一个字典，包含额外的选项，这些选项将传递给采样函数。
+    - inpaint_options: 一个字典，包含内painting相关的选项。
+    """
     def __init__(self, sampler_function, extra_options={}, inpaint_options={}):
         self.sampler_function = sampler_function
         self.extra_options = extra_options
         self.inpaint_options = inpaint_options
 
     def sample(self, model_wrap, sigmas, extra_args, callback, noise, latent_image=None, denoise_mask=None, disable_pbar=False):
+        """
+        执行采样过程。
+
+        参数:
+        - model_wrap: 一个封装了模型的对象，提供了访问模型的方法。
+        - sigmas: 一个列表，包含了采样过程中的噪声标准差。
+        - extra_args: 一个字典，包含了额外的参数，这些参数将传递给采样函数。
+        - callback: 一个回调函数，用于在采样过程中触发某些操作。
+        - noise: 一个张量，表示输入的噪声。
+        - latent_image: 一个张量，表示潜在图像。
+        - denoise_mask: 一个张量，表示去噪掩码。
+        - disable_pbar: 一个布尔值，如果为True，则禁用进度条。
+
+        返回:
+        - samples: 一个张量，包含了采样的结果。
+        """
+        # 将denoise_mask添加到extra_args中
         extra_args["denoise_mask"] = denoise_mask
+
+        # 创建一个用于内painting的模型实例
         # 局部重绘--噪声遮罩
         model_k = KSamplerX0Inpaint(model_wrap, sigmas)
         model_k.latent_image = latent_image
+
+        # 根据inpaint_options配置随机噪声
         if self.inpaint_options.get("random", False): #TODO: Should this be the default?
             generator = torch.manual_seed(extra_args.get("seed", 41) + 1)
             model_k.noise = torch.randn(noise.shape, generator=generator, device="cpu").to(noise.dtype).to(noise.device)
         else:
             model_k.noise = noise
 
+        # 根据模型的噪声缩放策略调整噪声
         noise = model_wrap.inner_model.model_sampling.noise_scaling(sigmas[0], noise, latent_image, self.max_denoise(model_wrap, sigmas))
 
+        # 创建一个内部回调函数
         k_callback = None
         total_steps = len(sigmas) - 1
         if callback is not None:
             k_callback = lambda x: callback(x["i"], x["denoised"], x["x"], total_steps)
 
+        # 使用sampler_function执行采样
         # 执行采样方法, sampling.py中"sample_{采样名称}"方法
         samples = self.sampler_function(model_k, noise, sigmas, extra_args=extra_args, callback=k_callback, disable=disable_pbar, **self.extra_options)
+
+        # 根据最终的噪声标准差调整采样结果
         samples = model_wrap.inner_model.model_sampling.inverse_noise_scaling(sigmas[-1], samples)
+
         return samples
 
 

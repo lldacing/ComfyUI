@@ -188,6 +188,7 @@ def get_output_data(obj, input_data_all, execution_block_cb=None, pre_execute_cb
     results = []
     uis = []
     subgraph_results = []
+    # 执行节点主函数
     return_values = _map_node_over_list(obj, input_data_all, obj.FUNCTION, allow_interrupt=True, execution_block_cb=execution_block_cb, pre_execute_cb=pre_execute_cb)
     has_subgraph = False
     for i in range(len(return_values)):
@@ -538,6 +539,7 @@ def validate_inputs(prompt, item, validated):
     validate_function_inputs = []
     validate_has_kwargs = False
     if hasattr(obj_class, "VALIDATE_INPUTS"):
+        # 获取VALIDATE_INPUTS函数的参数名称
         argspec = inspect.getfullargspec(obj_class.VALIDATE_INPUTS)
         validate_function_inputs = argspec.args
         validate_has_kwargs = argspec.varkw is not None
@@ -576,11 +578,13 @@ def validate_inputs(prompt, item, validated):
                 errors.append(error)
                 continue
 
+            # 和输入参数连线的前一个节点ID/类型/参数类型
             o_id = val[0]
             o_class_type = prompt[o_id]['class_type']
             r = nodes.NODE_CLASS_MAPPINGS[o_class_type].RETURN_TYPES
             received_type = r[val[1]]
             received_types[x] = received_type
+            # 参数类型是否一致
             if 'input_types' not in validate_function_inputs and received_type != type_input:
                 details = f"{x}, {received_type} != {type_input}"
                 error = {
@@ -597,6 +601,7 @@ def validate_inputs(prompt, item, validated):
                 errors.append(error)
                 continue
             try:
+                # 递归根据连线向前校验
                 r = validate_inputs(prompt, o_id, validated)
                 if r[0] is False:
                     # `r` will be set in `validated[o_id]` already
@@ -704,6 +709,7 @@ def validate_inputs(prompt, item, validated):
                         errors.append(error)
                         continue
 
+    # 使用自定义校验函数校验
     if len(validate_function_inputs) > 0 or validate_has_kwargs:
         input_data_all, _ = get_input_data(inputs, obj_class, unique_id)
         input_filtered = {}
@@ -748,6 +754,7 @@ def full_type_name(klass):
     return module + '.' + klass.__qualname__
 
 def validate_prompt(prompt):
+    # 1. find all nodes with output
     outputs = set()
     for x in prompt:
         if 'class_type' not in prompt[x]:
