@@ -24,6 +24,7 @@ import comfy.text_encoders.sa_t5
 import comfy.text_encoders.aura_t5
 import comfy.text_encoders.hydit
 import comfy.text_encoders.flux
+import comfy.text_encoders.long_clipl
 
 import comfy.model_patcher
 import comfy.lora
@@ -412,7 +413,10 @@ def load_clip(ckpt_paths, embedding_directory=None, clip_type=CLIPType.STABLE_DI
     clip_data = []
     for p in ckpt_paths:
         clip_data.append(comfy.utils.load_torch_file(p, safe_load=True))
+    return load_text_encoder_state_dicts(clip_data, embedding_directory=embedding_directory, clip_type=clip_type, model_options=model_options)
 
+def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip_type=CLIPType.STABLE_DIFFUSION, model_options={}):
+    clip_data = state_dicts
     class EmptyClass:
         pass
 
@@ -449,8 +453,13 @@ def load_clip(ckpt_paths, embedding_directory=None, clip_type=CLIPType.STABLE_DI
             clip_target.clip = comfy.text_encoders.sa_t5.SAT5Model
             clip_target.tokenizer = comfy.text_encoders.sa_t5.SAT5Tokenizer
         else:
-            clip_target.clip = sd1_clip.SD1ClipModel
-            clip_target.tokenizer = sd1_clip.SD1Tokenizer
+            w = clip_data[0].get("text_model.embeddings.position_embedding.weight", None)
+            if w is not None and w.shape[0] == 248:
+                clip_target.clip = comfy.text_encoders.long_clipl.LongClipModel
+                clip_target.tokenizer = comfy.text_encoders.long_clipl.LongClipTokenizer
+            else:
+                clip_target.clip = sd1_clip.SD1ClipModel
+                clip_target.tokenizer = sd1_clip.SD1Tokenizer
     elif len(clip_data) == 2:
         if clip_type == CLIPType.SD3:
             clip_target.clip = comfy.text_encoders.sd3_clip.sd3_clip(clip_l=True, clip_g=True, t5=False)

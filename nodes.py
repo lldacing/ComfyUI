@@ -2158,6 +2158,7 @@ def init_builtin_extra_nodes():
         "nodes_controlnet.py",
         "nodes_hunyuan.py",
         "nodes_flux.py",
+        "nodes_lora_extract.py",
     ]
 
     import_failed = []
@@ -2186,3 +2187,5 @@ def init_extra_nodes(init_custom_nodes=True):
         else:
             logging.warning("Please do a: pip install -r requirements.txt")
         logging.warning("")
+    
+    return import_failed
