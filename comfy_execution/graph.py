@@ -212,50 +212,61 @@ class TopologicalSort:
     # 参数 to_node_id: 目标节点唯一标识符
     def add_strong_link(self, from_node_id, from_socket, to_node_id):
         # 添加源节点ID到图中
-        self.add_node(from_node_id)
-
-        # 如果目标节点ID不在源节点的阻塞列表中，则初始化阻塞记录并增加目标节点的阻塞计数
-        if to_node_id not in self.blocking[from_node_id]:
-            self.blocking[from_node_id][to_node_id] = {}
-            self.blockCount[to_node_id] += 1
-
-        # 在源节点的阻塞列表中，将特定源端口标记为被目标节点阻塞
-        self.blocking[from_node_id][to_node_id][from_socket] = True
+        if not self.is_cached(from_node_id):
+            self.add_node(from_node_id)
+            # 如果目标节点ID不在源节点的阻塞列表中，则初始化阻塞记录并增加目标节点的阻塞计数
+            if to_node_id not in self.blocking[from_node_id]:
+                self.blocking[from_node_id][to_node_id] = {}
+                self.blockCount[to_node_id] += 1
+            # 在源节点的阻塞列表中，将特定源端口标记为被目标节点阻塞
+            self.blocking[from_node_id][to_node_id][from_socket] = True
 
     # 将节点添加到待处理列表，并更新其依赖信息
     # 参数 unique_id: 节点唯一标识符
-    def add_node(self, unique_id, include_lazy=False, subgraph_nodes=None):
+    def add_node(self, node_unique_id, include_lazy=False, subgraph_nodes=None):
         # 检查当前节点是否已经在待处理队列中，避免重复处理
-        if unique_id in self.pendingNodes:
-            return
+        node_ids = [node_unique_id]
+        links = []
 
-        # 将当前节点标记为待处理状态
-        self.pendingNodes[unique_id] = True
-        # 初始化当前节点的阻塞计数为0
-        self.blockCount[unique_id] = 0
-        # 初始化当前节点的阻塞依赖字典
-        self.blocking[unique_id] = {}
+        while len(node_ids) > 0:
+            unique_id = node_ids.pop()
+            if unique_id in self.pendingNodes:
+                continue
 
-        # 获取当前节点的输入信息
-        inputs = self.dynprompt.get_node(unique_id)["inputs"]
-        for input_name in inputs:
-            # 获取输入值
-            value = inputs[input_name]
-            # 判断输入值是否为链接类型
-            if is_link(value):
-                # 解析链接，获取上游节点ID和输出端口
-                from_node_id, from_socket = value
-                # 如果指定了子图范围且上游节点不在该范围内，则跳过处理
-                if subgraph_nodes is not None and from_node_id not in subgraph_nodes:
-                    continue
-                # 获取当前节点输入的类型、分类和附加信息
-                input_type, input_category, input_info = self.get_input_info(unique_id, input_name)
-                # 判断当前输入是否为延迟执行类型
-                is_lazy = input_info is not None and "lazy" in input_info and input_info["lazy"]
-                # 根据是否包含延迟执行来决定是否添加强链接
-                if include_lazy or not is_lazy:
-                    # 添加强链接，表示当前节点依赖上游节点的特定输出
-                    self.add_strong_link(from_node_id, from_socket, unique_id)
+            # 将当前节点标记为待处理状态
+            self.pendingNodes[unique_id] = True
+            # 初始化当前节点的阻塞计数为0
+            self.blockCount[unique_id] = 0
+            # 初始化当前节点的阻塞依赖字典
+            self.blocking[unique_id] = {}
+
+            # 获取当前节点的输入信息
+            inputs = self.dynprompt.get_node(unique_id)["inputs"]
+            for input_name in inputs:
+                # 获取输入值
+                value = inputs[input_name]
+                # 判断输入值是否为链接类型
+                if is_link(value):
+                    # 解析链接，获取上游节点ID和输出端口
+                    from_node_id, from_socket = value
+                    # 如果指定了子图范围且上游节点不在该范围内，则跳过处理
+                    if subgraph_nodes is not None and from_node_id not in subgraph_nodes:
+                        continue
+                    # 获取当前节点输入的类型、分类和附加信息
+                    input_type, input_category, input_info = self.get_input_info(unique_id, input_name)
+                    # 判断当前输入是否为延迟执行类型
+                    is_lazy = input_info is not None and "lazy" in input_info and input_info["lazy"]
+                    # 根据是否包含延迟执行来决定是否添加强链接
+                    if (include_lazy or not is_lazy) and not self.is_cached(from_node_id):
+                        node_ids.append(from_node_id)
+                        # 添加强链接，表示当前节点依赖上游节点的特定输出
+                        links.append((from_node_id, from_socket, unique_id))
+
+        for link in links:
+            self.add_strong_link(*link)
+
+    def is_cached(self, node_id):
+        return False
 
     # 获取未被阻塞且准备就绪的节点
     # 返回: 未被阻塞的节点标识符列表
@@ -291,11 +302,8 @@ class ExecutionList(TopologicalSort):
         self.output_cache = output_cache
         self.staged_node_id = None
 
-    def add_strong_link(self, from_node_id, from_socket, to_node_id):
-        if self.output_cache.get(from_node_id) is not None:
-            # Nothing to do
-            return
-        super().add_strong_link(from_node_id, from_socket, to_node_id)
+    def is_cached(self, node_id):
+        return self.output_cache.get(node_id) is not None
 
     def stage_node_execution(self):
         assert self.staged_node_id is None
