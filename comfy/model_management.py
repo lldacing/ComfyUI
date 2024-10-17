@@ -418,40 +418,55 @@ def unload_model_clones(model, unload_weights_only=True, force_unload=True):
     return unload_weight
 
 def free_memory(memory_required, device, keep_loaded=[]):
-    unloaded_model = []
-    can_unload = []
-    unloaded_models = []
+    """
+    释放指定设备上的内存，以满足所需内存需求。
 
-    for i in range(len(current_loaded_models) -1, -1, -1):
+    :param memory_required: 需要释放的内存量（字节）
+    :param device: 需要释放内存的设备（例如 CPU 或 GPU）
+    :param keep_loaded: 不允许卸载的模型列表
+    :return: 卸载的模型列表
+    """
+    unloaded_model = []  # 记录已卸载的模型索引
+    can_unload = []  # 记录可以卸载的模型信息
+    unloaded_models = []  # 记录已卸载的模型
+
+    # 从后向前遍历当前加载的模型
+    for i in range(len(current_loaded_models) - 1, -1, -1):
         shift_model = current_loaded_models[i]
         if shift_model.device == device:
             if shift_model not in keep_loaded:
+                # 记录可以卸载的模型信息
                 can_unload.append((-shift_model.model_offloaded_memory(), sys.getrefcount(shift_model.model), shift_model.model_memory(), i))
                 shift_model.currently_used = False
 
+    # 按释放的内存量降序排序可以卸载的模型
     for x in sorted(can_unload):
-        i = x[-1]
+        i = x[-1]  # 获取模型索引
         memory_to_free = None
         if not DISABLE_SMART_MEMORY:
-            free_mem = get_free_memory(device)
+            free_mem = get_free_memory(device)  # 获取当前设备的空闲内存
             if free_mem > memory_required:
-                break
-            memory_to_free = memory_required - free_mem
-        logging.debug(f"Unloading {current_loaded_models[i].model.model.__class__.__name__}")
-        if current_loaded_models[i].model_unload(memory_to_free):
-            unloaded_model.append(i)
+                break  # 如果当前空闲内存已满足需求，停止卸载
+            memory_to_free = memory_required - free_mem  # 计算还需要释放的内存量
+        logging.debug(f"Unloading {current_loaded_models[i].model.model.__class__.__name__}")  # 记录日志
+        if current_loaded_models[i].model_unload(memory_to_free):  # 卸载模型
+            unloaded_model.append(i)  # 记录已卸载的模型索引
 
+    # 从当前加载的模型列表中移除已卸载的模型
     for i in sorted(unloaded_model, reverse=True):
         unloaded_models.append(current_loaded_models.pop(i))
 
+    # 如果有模型被卸载，清理缓存
     if len(unloaded_model) > 0:
         soft_empty_cache()
     else:
         if vram_state != VRAMState.HIGH_VRAM:
-            mem_free_total, mem_free_torch = get_free_memory(device, torch_free_too=True)
+            mem_free_total, mem_free_torch = get_free_memory(device, torch_free_too=True)  # 获取总空闲内存和 PyTorch 空闲内存
             if mem_free_torch > mem_free_total * 0.25:
-                soft_empty_cache()
-    return unloaded_models
+                soft_empty_cache()  # 如果 PyTorch 空闲内存超过总空闲内存的 25%，清理缓存
+
+    return unloaded_models  # 返回已卸载的模型列表
+
 
 def load_models_gpu(models, memory_required=0, force_patch_weights=False, minimum_memory_required=None, force_full_load=False):
     global vram_state
