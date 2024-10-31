@@ -1543,29 +1543,54 @@ class SaveImage:
     DESCRIPTION = "Saves the input images to your ComfyUI output directory."
 
     def save_images(self, images, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None):
+        # 将预定义的前缀附加到文件名前缀
         filename_prefix += self.prefix_append
+
+        # 获取保存图像的路径信息
         full_output_folder, filename, counter, subfolder, filename_prefix = folder_paths.get_save_image_path(filename_prefix, self.output_dir, images[0].shape[1], images[0].shape[0])
+
+        # 初始化结果列表，用于存储已保存图像的信息
         results = list()
+
+        # 遍历图像并保存每一张
         for (batch_number, image) in enumerate(images):
+            # 将图像张量转换为numpy数组，并将像素值缩放到0-255
             i = 255. * image.cpu().numpy()
+
+            # 从numpy数组创建Image对象，裁剪像素值以确保在有效范围内
             img = Image.fromarray(np.clip(i, 0, 255).astype(np.uint8))
+
+            # 初始化元数据为None，如果未禁用元数据则进行填充
             metadata = None
             if not args.disable_metadata:
                 metadata = PngInfo()
+
+                # 如果提供了提示信息，则将其添加到元数据中
                 if prompt is not None:
                     metadata.add_text("prompt", json.dumps(prompt))
+
+                # 如果提供了额外的PNG信息，则将其添加到元数据中
                 if extra_pnginfo is not None:
                     for x in extra_pnginfo:
                         metadata.add_text(x, json.dumps(extra_pnginfo[x]))
 
+            # 替换文件名中的批号占位符为实际的批号
             filename_with_batch_num = filename.replace("%batch_num%", str(batch_number))
+
+            # 构建最终的文件名，包括批号和计数器
             file = f"{filename_with_batch_num}_{counter:05}_.png"
+
+            # 保存图像，附带元数据和指定的压缩级别
             img.save(os.path.join(full_output_folder, file), pnginfo=metadata, compress_level=self.compress_level)
+
+            # 将已保存的图像信息添加到结果列表中
             results.append({
                 "filename": file,
                 "subfolder": subfolder,
                 "type": self.type
             })
+
+            # 增加计数器，以便处理下一张图像
             counter += 1
 
         return { "ui": { "images": results } }

@@ -331,6 +331,15 @@ def get_filename_list(folder_name: str) -> list[str]:
 
 def get_save_image_path(filename_prefix: str, output_dir: str, image_width=0, image_height=0) -> tuple[str, str, int, str, str]:
     def map_filename(filename: str) -> tuple[int, str]:
+        """
+        从文件名中提取前缀和数字部分。
+
+        参数:
+        - filename (str): 文件名
+
+        返回:
+        - tuple[int, str]: 包含提取的数字和前缀的元组
+        """
         prefix_len = len(os.path.basename(filename_prefix))
         prefix = filename[:prefix_len + 1]
         try:
@@ -340,6 +349,17 @@ def get_save_image_path(filename_prefix: str, output_dir: str, image_width=0, im
         return digits, prefix
 
     def compute_vars(input: str, image_width: int, image_height: int) -> str:
+        """
+        替换输入字符串中的变量为实际值。
+
+        参数:
+        - input (str): 输入字符串
+        - image_width (int): 图像宽度
+        - image_height (int): 图像高度
+
+        返回:
+        - str: 替换后的字符串
+        """
         input = input.replace("%width%", str(image_width))
         input = input.replace("%height%", str(image_height))
         now = time.localtime()
@@ -352,13 +372,17 @@ def get_save_image_path(filename_prefix: str, output_dir: str, image_width=0, im
         return input
 
     if "%" in filename_prefix:
+        # 如果文件名前缀包含变量，则计算并替换这些变量
         filename_prefix = compute_vars(filename_prefix, image_width, image_height)
 
+    # 获取子文件夹和文件名
     subfolder = os.path.dirname(os.path.normpath(filename_prefix))
     filename = os.path.basename(os.path.normpath(filename_prefix))
 
+    # 构建完整的输出文件夹路径
     full_output_folder = os.path.join(output_dir, subfolder)
 
+    # 检查输出文件夹是否在允许的范围内
     if os.path.commonpath((output_dir, os.path.abspath(full_output_folder))) != output_dir:
         err = "**** ERROR: Saving image outside the output folder is not allowed." + \
               "\n full_output_folder: " + os.path.abspath(full_output_folder) + \
@@ -368,10 +392,13 @@ def get_save_image_path(filename_prefix: str, output_dir: str, image_width=0, im
         raise Exception(err)
 
     try:
+        # 获取当前文件夹中最大编号的文件，并在此基础上增加1
         counter = max(filter(lambda a: os.path.normcase(a[1][:-1]) == os.path.normcase(filename) and a[1][-1] == "_", map(map_filename, os.listdir(full_output_folder))))[0] + 1
     except ValueError:
         counter = 1
     except FileNotFoundError:
+        # 如果文件夹不存在，则创建它并将计数器设为1
         os.makedirs(full_output_folder, exist_ok=True)
         counter = 1
+
     return full_output_folder, filename, counter, subfolder, filename_prefix
