@@ -651,48 +651,76 @@ def load_checkpoint_guess_config(ckpt_path, output_vae=True, output_clip=True, o
     return out
 
 def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_clipvision=False, embedding_directory=None, output_model=True, model_options={}, te_model_options={}):
+    """
+    根据状态字典加载模型配置，并返回模型的不同组件。
+
+    :param sd: 模型的状态字典
+    :param output_vae: 是否输出 VAE 组件
+    :param output_clip: 是否输出 CLIP 组件
+    :param output_clipvision: 是否输出 CLIP Vision 组件
+    :param embedding_directory: 嵌入目录
+    :param output_model: 是否输出主模型
+    :param model_options: 模型选项
+    :param te_model_options: 文本编码器模型选项
+    :return: (model_patcher, clip, vae, clipvision) 模型的不同组件
+    """
     clip = None
     clipvision = None
     vae = None
     model = None
     model_patcher = None
 
+    # 从状态字典中检测 U-Net 前缀
     diffusion_model_prefix = model_detection.unet_prefix_from_state_dict(sd)
+    # 计算参数数量
     parameters = comfy.utils.calculate_parameters(sd, diffusion_model_prefix)
+    # 获取权重类型
     weight_dtype = comfy.utils.weight_dtype(sd, diffusion_model_prefix)
+    # 获取加载设备
     load_device = model_management.get_torch_device()
 
+    # 从状态字典中检测模型配置
     model_config = model_detection.model_config_from_unet(sd, diffusion_model_prefix)
     if model_config is None:
         return None
 
+    # 获取支持的推理数据类型
     unet_weight_dtype = list(model_config.supported_inference_dtypes)
     if weight_dtype is not None and model_config.scaled_fp8 is None:
         unet_weight_dtype.append(weight_dtype)
 
+    # 设置自定义操作
     model_config.custom_operations = model_options.get("custom_operations", None)
+    # 获取 U-Net 数据类型
     unet_dtype = model_options.get("dtype", model_options.get("weight_dtype", None))
 
     if unet_dtype is None:
         unet_dtype = model_management.unet_dtype(model_params=parameters, supported_dtypes=unet_weight_dtype)
 
+    # 获取手动转换的数据类型
     manual_cast_dtype = model_management.unet_manual_cast(unet_dtype, load_device, model_config.supported_inference_dtypes)
+    # 设置推理数据类型
     model_config.set_inference_dtype(unet_dtype, manual_cast_dtype)
 
+    # 加载 CLIP Vision 组件
     if model_config.clip_vision_prefix is not None:
         if output_clipvision:
+            # 加载视觉模型
             clipvision = clip_vision.load_clipvision_from_sd(sd, model_config.clip_vision_prefix, True)
 
+    # 加载主模型
     if output_model:
         inital_load_device = model_management.unet_inital_load_device(parameters, unet_dtype)
         model = model_config.get_model(sd, diffusion_model_prefix, device=inital_load_device)
         model.load_model_weights(sd, diffusion_model_prefix)
 
+    # 加载 VAE 组件
     if output_vae:
         vae_sd = comfy.utils.state_dict_prefix_replace(sd, {k: "" for k in model_config.vae_key_prefix}, filter_keys=True)
         vae_sd = model_config.process_vae_state_dict(vae_sd)
         vae = VAE(sd=vae_sd)
 
+    # 加载 CLIP 组件
     if output_clip:
         clip_target = model_config.clip_target(state_dict=sd)
         if clip_target is not None:
@@ -713,10 +741,12 @@ def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_c
             else:
                 logging.warning("no CLIP/text encoder weights in checkpoint, the text encoder model will not be loaded.")
 
+    # 检查剩余的键
     left_over = sd.keys()
     if len(left_over) > 0:
         logging.debug("left over keys: {}".format(left_over))
 
+    # 创建模型补丁
     if output_model:
         model_patcher = comfy.model_patcher.ModelPatcher(model, load_device=load_device, offload_device=model_management.unet_offload_device())
         if inital_load_device != torch.device("cpu"):
@@ -724,6 +754,7 @@ def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_c
             model_management.load_models_gpu([model_patcher], force_full_load=True)
 
     return (model_patcher, clip, vae, clipvision)
+
 
 
 def load_diffusion_model_state_dict(sd, model_options={}): #load unet in diffusers or regular format

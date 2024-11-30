@@ -620,21 +620,33 @@ def unet_offload_device():
         return torch.device("cpu")
 
 def unet_inital_load_device(parameters, dtype):
+    # 获取当前的Torch设备
     torch_dev = get_torch_device()
+
+    # 如果VRAM状态是高VRAM，则直接返回当前的Torch设备
     if vram_state == VRAMState.HIGH_VRAM:
         return torch_dev
 
+    # 定义CPU设备
     cpu_dev = torch.device("cpu")
+
+    # 如果禁用了智能内存管理，则直接返回CPU设备
     if DISABLE_SMART_MEMORY:
         return cpu_dev
 
+    # 计算模型大小，以便后续决定使用哪个设备
     model_size = dtype_size(dtype) * parameters
 
+    # 获取Torch设备和CPU设备的可用内存
     mem_dev = get_free_memory(torch_dev)
     mem_cpu = get_free_memory(cpu_dev)
+
+    # 根据设备的可用内存和模型大小决定使用哪个设备
     if mem_dev > mem_cpu and model_size < mem_dev:
+        # 如果Torch设备的可用内存大于CPU且足以容纳模型，则返回Torch设备
         return torch_dev
     else:
+        # 否则，返回CPU设备
         return cpu_dev
 
 def maximum_vram_for_weights(device=None):
@@ -665,26 +677,35 @@ def unet_dtype(device=None, model_params=0, supported_dtypes=[torch.float16, tor
     except:
         pass
 
+    # 如果指定了 fp8_dtype 并且设备支持 fp8 计算，
+    # 则转换为 fp8 的成本可能不高，直接返回 fp8_dtype。
     if fp8_dtype is not None:
         if supports_fp8_compute(device): #if fp8 compute is supported the casting is most likely not expensive
             return fp8_dtype
 
+        # 如果设备不支持 fp8 计算，检查是否有足够的显存来容纳模型参数的 fp8 格式。
         free_model_memory = maximum_vram_for_weights(device)
         if model_params * 2 > free_model_memory:
             return fp8_dtype
 
+    # 遍历支持的数据类型，优先考虑自动转换为 fp16 或 bf16。
     for dt in supported_dtypes:
+        # 检查当前数据类型是否为 fp16，并且设备是否应使用 fp16。
         if dt == torch.float16 and should_use_fp16(device=device, model_params=model_params):
             if torch.float16 in supported_dtypes:
                 return torch.float16
+        # 检查当前数据类型是否为 bf16，并且设备是否应使用 bf16。
         if dt == torch.bfloat16 and should_use_bf16(device, model_params=model_params):
             if torch.bfloat16 in supported_dtypes:
                 return torch.bfloat16
 
+    # 再次遍历支持的数据类型，这次考虑手动转换为 fp16 或 bf16。
     for dt in supported_dtypes:
+        # 检查当前数据类型是否为 fp16，并且设备是否应使用 fp16 进行手动转换。
         if dt == torch.float16 and should_use_fp16(device=device, model_params=model_params, manual_cast=True):
             if torch.float16 in supported_dtypes:
                 return torch.float16
+        # 检查当前数据类型是否为 bf16，并且设备是否应使用 bf16 进行手动转换。
         if dt == torch.bfloat16 and should_use_bf16(device, model_params=model_params, manual_cast=True):
             if torch.bfloat16 in supported_dtypes:
                 return torch.bfloat16
@@ -925,18 +946,26 @@ def force_upcast_attention_dtype():
         return None
 
 def get_free_memory(dev=None, torch_free_too=False):
+    # 定义一个全局变量，用于指示是否启用了DirectML
     global directml_enabled
+
+    # 如果未指定设备，则获取默认的Torch设备
     if dev is None:
         dev = get_torch_device()
 
+    # 检查设备类型是否为CPU或MPS（Apple的金属性能着色）
     if hasattr(dev, 'type') and (dev.type == 'cpu' or dev.type == 'mps'):
+        # 在CPU或MPS设备上，可用内存等于系统当前可用的虚拟内存
         mem_free_total = psutil.virtual_memory().available
         mem_free_torch = mem_free_total
     else:
+        # 对于非CPU/MPS设备，根据设备类型计算可用内存
         if directml_enabled:
+            # 如果启用了DirectML，设置总的可用内存量（需要具体实现根据设备情况计算）
             mem_free_total = 1024 * 1024 * 1024 #TODO
             mem_free_torch = mem_free_total
         elif is_intel_xpu():
+            # 如果是Intel XPU设备，获取内存状态并计算可用内存
             stats = torch.xpu.memory_stats(dev)
             mem_active = stats['active_bytes.all.current']
             mem_reserved = stats['reserved_bytes.all.current']
@@ -944,6 +973,7 @@ def get_free_memory(dev=None, torch_free_too=False):
             mem_free_xpu = torch.xpu.get_device_properties(dev).total_memory - mem_reserved
             mem_free_total = mem_free_xpu + mem_free_torch
         else:
+            # 对于其他设备（如NVIDIA GPU），获取CUDA内存状态并计算可用内存
             stats = torch.cuda.memory_stats(dev)
             mem_active = stats['active_bytes.all.current']
             mem_reserved = stats['reserved_bytes.all.current']
@@ -951,6 +981,7 @@ def get_free_memory(dev=None, torch_free_too=False):
             mem_free_torch = mem_reserved - mem_active
             mem_free_total = mem_free_cuda + mem_free_torch
 
+    # 根据torch_free_too参数决定返回值
     if torch_free_too:
         return (mem_free_total, mem_free_torch)
     else:

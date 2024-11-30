@@ -110,15 +110,22 @@ def load_clipvision_from_sd(sd, prefix="", convert_keys=False):
     else:
         return None
 
+    # 初始化ClipVisionModel模型
     clip = ClipVisionModel(json_config)
+    # 加载模型状态字典，同时获取缺失和未使用的关键字
     m, u = clip.load_sd(sd)
+    # 如果存在缺失的clip视觉模型参数，则记录警告日志
     if len(m) > 0:
         logging.warning("missing clip vision: {}".format(m))
+    # 将未使用的关键字转换为集合，以便进行高效的查找
     u = set(u)
+    # 获取当前状态字典的所有键
     keys = list(sd.keys())
+    # 遍历状态字典的键，移除所有未被使用的关键字对应的项
     for k in keys:
         if k not in u:
             sd.pop(k)
+    # 返回处理后的clip视觉模型
     return clip
 
 def load(ckpt_path):

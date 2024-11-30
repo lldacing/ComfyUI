@@ -54,13 +54,21 @@ class BASE:
 
     @classmethod
     def matches(s, unet_config, state_dict=None):
+        # 遍历当前配置项，检查是否与给定的配置项完全匹配
         for k in s.unet_config:
+            # 如果当前配置项不存在于给定的配置项中，或者值不匹配，则返回False
             if k not in unet_config or s.unet_config[k] != unet_config[k]:
                 return False
+
+        # 如果状态字典被提供，则进一步检查状态字典是否包含所有必需的键
         if state_dict is not None:
+            # 遍历所有必需的键
             for k in s.required_keys:
+                # 如果当前必需的键不存在于状态字典中，则返回False
                 if k not in state_dict:
                     return False
+
+        # 所有检查通过，返回True
         return True
 
     def model_type(self, state_dict, prefix=""):
@@ -78,12 +86,17 @@ class BASE:
             self.unet_config[x] = self.unet_extra_config[x]
 
     def get_model(self, state_dict, prefix="", device=None):
+        # 根据是否配置了噪声增强参数，决定使用哪种模型进行处理
         if self.noise_aug_config is not None:
+            # 如果配置了噪声增强参数，使用SD21UNCLIP模型进行处理
             out = model_base.SD21UNCLIP(self, self.noise_aug_config, model_type=self.model_type(state_dict, prefix), device=device)
         else:
+            # 如果未配置噪声增强参数，使用BaseModel模型进行处理
             out = model_base.BaseModel(self, model_type=self.model_type(state_dict, prefix), device=device)
+        # 检查是否需要使用修复模型，如果需要，则设置模型为修复模式
         if self.inpaint_model():
             out.set_inpaint()
+        # 返回初始化后的模型
         return out
 
     def process_clip_state_dict(self, state_dict):

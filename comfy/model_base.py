@@ -155,43 +155,64 @@ class BaseModel(torch.nn.Module):
         return None
 
     def concat_cond(self, **kwargs):
+        # 如果需要拼接的键列表不为空，则进行以下处理
         if len(self.concat_keys) > 0:
+            # 初始化一个空列表，用于存储拼接条件
             cond_concat = []
+            # 获取去噪掩码
             denoise_mask = kwargs.get("concat_mask", kwargs.get("denoise_mask", None))
+            # 获取拼接潜在图像
             concat_latent_image = kwargs.get("concat_latent_image", None)
             if concat_latent_image is None:
+                # 如果拼接潜在图像为空，则使用潜在图像
                 concat_latent_image = kwargs.get("latent_image", None)
             else:
+                # 处理拼接潜在图像
                 concat_latent_image = self.process_latent_in(concat_latent_image)
 
+            # 获取噪声
             noise = kwargs.get("noise", None)
+            # 获取设备
             device = kwargs["device"]
 
+            # 如果拼接潜在图像的形状与噪声的形状不匹配，则调整拼接潜在图像的大小
             if concat_latent_image.shape[1:] != noise.shape[1:]:
                 concat_latent_image = utils.common_upscale(concat_latent_image, noise.shape[-1], noise.shape[-2], "bilinear", "center")
 
+            # 调整拼接潜在图像的批量大小以匹配噪声的批量大小
             concat_latent_image = utils.resize_to_batch_size(concat_latent_image, noise.shape[0])
 
+            # 如果去噪掩码不为空，则进行以下处理
             if denoise_mask is not None:
                 if len(denoise_mask.shape) == len(noise.shape):
+                    # 只取第一个通道
                     denoise_mask = denoise_mask[:,:1]
 
+                # 重塑去噪掩码
                 denoise_mask = denoise_mask.reshape((-1, 1, denoise_mask.shape[-2], denoise_mask.shape[-1]))
                 if denoise_mask.shape[-2:] != noise.shape[-2:]:
+                    # 调整去噪掩码的大小
                     denoise_mask = utils.common_upscale(denoise_mask, noise.shape[-1], noise.shape[-2], "bilinear", "center")
+                # 调整去噪掩码的批量大小
                 denoise_mask = utils.resize_to_batch_size(denoise_mask.round(), noise.shape[0])
 
+            # 遍历需要拼接的键列表
             for ck in self.concat_keys:
                 if denoise_mask is not None:
                     if ck == "mask":
+                        # 将去噪掩码添加到拼接条件列表中
                         cond_concat.append(denoise_mask.to(device))
                     elif ck == "masked_image":
+                        # 将拼接潜在图像添加到拼接条件列表中
                         cond_concat.append(concat_latent_image.to(device)) #NOTE: the latent_image should be masked by the mask in pixel space
                 else:
                     if ck == "mask":
+                        # 如果没有去噪掩码，则生成全1的掩码
                         cond_concat.append(torch.ones_like(noise)[:,:1])
                     elif ck == "masked_image":
+                        # 如果没有去噪掩码，则生成空白的潜在图像
                         cond_concat.append(self.blank_inpaint_image_like(noise))
+            # 拼接所有条件
             data = torch.cat(cond_concat, dim=1)
             return data
         return None
@@ -228,6 +249,7 @@ class BaseModel(torch.nn.Module):
                 to_load[k[len(unet_prefix):]] = sd.pop(k)
 
         to_load = self.model_config.process_unet_state_dict(to_load)
+        # 加载模型参数
         m, u = self.diffusion_model.load_state_dict(to_load, strict=False)
         if len(m) > 0:
             logging.warning("unet missing: {}".format(m))
@@ -268,15 +290,33 @@ class BaseModel(torch.nn.Module):
         return unet_state_dict
 
     def set_inpaint(self):
+        # 定义一个元组，用于存储拼接操作的键
         self.concat_keys = ("mask", "masked_image")
+
         def blank_inpaint_image_like(latent_image):
+            """
+            创建一个与给定潜在图像形状相同但内容为空白的图像张量。
+
+            参数:
+            latent_image (torch.Tensor): 输入的潜在图像张量。
+
+            返回:
+            torch.Tensor: 一个与输入潜在图像形状相同，但内容经过特定值填充的空白图像张量。
+            """
+            # 初始化一个与latent_image形状相同的张量，所有元素为1
             blank_image = torch.ones_like(latent_image)
             # these are the values for "zero" in pixel space translated to latent space
+            # 将空白图像的第0通道元素乘以0.8223
             blank_image[:,0] *= 0.8223
+            # 将空白图像的第1通道元素乘以-0.6876
             blank_image[:,1] *= -0.6876
+            # 将空白图像的第2通道元素乘以0.6364
             blank_image[:,2] *= 0.6364
+            # 将空白图像的第3通道元素乘以0.1380
             blank_image[:,3] *= 0.1380
+            # 返回经过上述操作后的空白图像张量
             return blank_image
+        # 将定义的函数赋值给实例变量，以便于后续调用
         self.blank_inpaint_image_like = blank_inpaint_image_like
 
     def memory_required(self, input_shape):

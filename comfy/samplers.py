@@ -787,6 +787,8 @@ def process_conds(model, noise, conds, device, latent_image=None, denoise_mask=N
         positive = conds["positive"]
         for k in conds:
             if k != "positive":
+                # 对于positive列表中所有设置了'control_apply_to_uncond'为True的条件项应用empty_x_to_equal_area函数以调整无条件区域的处理方式
+                # 此操作旨在根据特定的控制逻辑调整条件项的处理
                 apply_empty_x_to_equal_area(list(filter(lambda c: c.get('control_apply_to_uncond', False) == True, positive)), conds[k], 'control', lambda cond_cnets, x: cond_cnets[x])
                 apply_empty_x_to_equal_area(positive, conds[k], 'gligen', lambda cond_cnets, x: cond_cnets[x])
 

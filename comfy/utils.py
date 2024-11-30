@@ -56,23 +56,48 @@ def save_torch_file(sd, ckpt, metadata=None):
         safetensors.torch.save_file(sd, ckpt)
 
 def calculate_parameters(sd, prefix=""):
+    """
+    计算模型参数总数量
+    Args:
+        sd: 模型参数字典
+        prefix: 过滤参数统计前缀
+
+    Returns:
+
+    """
+    # 初始化参数数量计数器
     params = 0
+
+    # 遍历字典sd中的所有键
     for k in sd.keys():
+        # 检查键是否以特定前缀开头，以确定是否需要统计该键对应的参数
         if k.startswith(prefix):
+            # 获取当前键对应的权重参数
             w = sd[k]
+            # 累加当前权重参数的元素数量到总参数数量计数器中
             params += w.nelement()
+
+    # 返回统计到的总参数数量
     return params
 
 def weight_dtype(sd, prefix=""):
+    # 初始化一个空字典，用于存储数据类型及其出现的次数
     dtypes = {}
+
+    # 遍历sd字典中的每个键值对
     for k in sd.keys():
+        # 检查键是否以特定前缀开头，以确定是否需要处理
         if k.startswith(prefix):
+            # 获取当前键对应的值
             w = sd[k]
+            # 更新dtypes字典，记录当前数据类型出现的次数
             dtypes[w.dtype] = dtypes.get(w.dtype, 0) + w.numel()
 
+    # 检查dtypes字典是否为空，如果为空则返回None
     if len(dtypes) == 0:
         return None
 
+    # 返回dtypes字典中出现次数最多的数据类型
     return max(dtypes, key=dtypes.get)
 
 def state_dict_key_replace(state_dict, keys_to_replace):
