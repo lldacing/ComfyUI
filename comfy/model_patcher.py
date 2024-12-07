@@ -49,24 +49,36 @@ def string_to_seed(data):
     return crc ^ 0xFFFFFFFF
 
 def set_model_options_patch_replace(model_options, patch, name, block_name, number, transformer_index=None):
+    # 初始化transformer选项的副本，以避免直接修改原始字典
     to = model_options["transformer_options"].copy()
 
+    # 确保patches_replace键存在，如果不存在则创建一个空字典
     if "patches_replace" not in to:
         to["patches_replace"] = {}
     else:
+        # 如果已存在，复制现有的patches_replace字典，以避免直接修改
         to["patches_replace"] = to["patches_replace"].copy()
 
+    # 确保指定名称的patch配置存在，如果不存在则创建一个空字典
     if name not in to["patches_replace"]:
         to["patches_replace"][name] = {}
     else:
+        # 如果已存在，复制现有的name对应的patch配置字典，以避免直接修改
         to["patches_replace"][name] = to["patches_replace"][name].copy()
 
+    # 根据transformer_index是否为None，构建block元组
     if transformer_index is not None:
         block = (block_name, number, transformer_index)
     else:
         block = (block_name, number)
+
+    # 将patch应用到指定的block上
     to["patches_replace"][name][block] = patch
+
+    # 将修改后的transformer选项字典复制回model_options
     model_options["transformer_options"] = to
+
+    # 返回更新后的model_options字典
     return model_options
 
 def set_model_options_post_cfg_function(model_options, post_cfg_function, disable_cfg1_optimization=False):
@@ -83,7 +95,7 @@ def set_model_options_pre_cfg_function(model_options, pre_cfg_function, disable_
 
 def create_model_options_clone(orig_model_options: dict):
     return comfy.patcher_extension.copy_nested_dicts(orig_model_options)
-        
+
 def create_hook_patches_clone(orig_hook_patches):
     new_hook_patches = {}
     for hook_ref in orig_hook_patches:
@@ -141,7 +153,7 @@ class AutoPatcherEjector:
         self.was_injected = False
         self.prev_skip_injection = False
         self.skip_and_inject_on_exit_only = skip_and_inject_on_exit_only
-    
+
     def __enter__(self):
         self.was_injected = False
         self.prev_skip_injection = self.model.skip_injection
@@ -164,7 +176,7 @@ class MemoryCounter:
         self.value = initial
         self.minimum = minimum
         # TODO: add a safe limit besides 0
-    
+
     def use(self, weight: torch.Tensor):
         weight_size = weight.nelement() * weight.element_size()
         if self.is_useable(weight_size):
@@ -358,9 +370,13 @@ class ModelPatcher:
         self.model_options["denoise_mask_function"] = denoise_mask_function
 
     def set_model_patch(self, patch, name):
+        # 获取模型配置中的transformer选项
         to = self.model_options["transformer_options"]
+        # 检查是否包含patches配置，如果没有则添加一个空的patches字典
         if "patches" not in to:
             to["patches"] = {}
+        # 在patches配置中，以name为键，将patch添加到对应的值列表中
+        # 如果name对应的值不存在，则初始化为一个只包含当前patch的列表
         to["patches"][name] = to["patches"].get(name, []) + [patch]
 
     def set_model_patch_replace(self, patch, name, block_name, number, transformer_index=None):
@@ -438,26 +454,40 @@ class ModelPatcher:
 
     def add_patches(self, patches, strength_patch=1.0, strength_model=1.0):
         with self.use_ejected():
+            # 初始化一个集合，用于记录与模型状态字典中键匹配的补丁
             p = set()
+            # 获取模型的当前状态字典
             model_sd = self.model.state_dict()
+            # 遍历所有补丁
             for k in patches:
+                # 重置偏移量和函数变量
                 offset = None
                 function = None
+                # 判断k是否为字符串类型，如果是，则直接使用k作为键
                 if isinstance(k, str):
                     key = k
                 else:
+                    # 如果k是一个元组，第二个元素为偏移量
                     offset = k[1]
                     key = k[0]
+                    # 如果k的长度大于2，第三个元素为可选的函数
                     if len(k) > 2:
                         function = k[2]
 
+                # 检查键是否存在于模型的状态字典中
                 if key in model_sd:
+                    # 如果存在，将该补丁添加到集合p中
                     p.add(k)
+                    # 获取当前键对应的补丁列表，如果不存在，则初始化为空列表
                     current_patches = self.patches.get(key, [])
+                    # 将新的补丁信息添加到列表中
                     current_patches.append((strength_patch, patches[k], strength_model, offset, function))
+                    # 更新补丁字典
                     self.patches[key] = current_patches
 
+            # 生成一个新的UUID，表示补丁的唯一标识
             self.patches_uuid = uuid.uuid4()
+            # 返回所有与模型状态字典中键匹配的补丁列表
             return list(p)
 
     def get_key_patches(self, filter_prefix=None):
@@ -711,7 +741,7 @@ class ModelPatcher:
                             else:
                                 comfy.utils.set_attr_param(self.model, key, bk.weight)
                             self.backup.pop(key)
-                    
+
                     weight_key = "{}.weight".format(n)
                     bias_key = "{}.bias".format(n)
                     if move_weight:
@@ -789,7 +819,7 @@ class ModelPatcher:
     def add_callback_with_key(self, call_type: str, key: str, callback: Callable):
         c = self.callbacks.setdefault(call_type, {}).setdefault(key, [])
         c.append(callback)
-    
+
     def remove_callbacks_with_key(self, call_type: str, key: str):
         c = self.callbacks.get(call_type, {})
         if key in c:
@@ -797,7 +827,7 @@ class ModelPatcher:
 
     def get_callbacks(self, call_type: str, key: str):
         return self.callbacks.get(call_type, {}).get(key, [])
-    
+
     def get_all_callbacks(self, call_type: str):
         c_list = []
         for c in self.callbacks.get(call_type, {}).values():
@@ -810,7 +840,7 @@ class ModelPatcher:
     def add_wrapper_with_key(self, wrapper_type: str, key: str, wrapper: Callable):
         w = self.wrappers.setdefault(wrapper_type, {}).setdefault(key, [])
         w.append(wrapper)
-    
+
     def remove_wrappers_with_key(self, wrapper_type: str, key: str):
         w = self.wrappers.get(wrapper_type, {})
         if key in w:
@@ -831,7 +861,7 @@ class ModelPatcher:
     def remove_attachments(self, key: str):
         if key in self.attachments:
             self.attachments.pop(key)
-    
+
     def get_attachment(self, key: str):
         return self.attachments.get(key, None)
 
@@ -851,7 +881,7 @@ class ModelPatcher:
 
     def get_additional_models_with_key(self, key: str):
         return self.additional_models.get(key, [])
-    
+
     def get_additional_models(self):
         all_models = []
         for models in self.additional_models.values():
@@ -906,7 +936,7 @@ class ModelPatcher:
             self.model.current_patcher = self
         for callback in self.get_all_callbacks(CallbacksMP.ON_PRE_RUN):
             callback(self)
-    
+
     def prepare_state(self, timestep):
         for callback in self.get_all_callbacks(CallbacksMP.ON_PREPARE_STATE):
             callback(self, timestep)
@@ -918,7 +948,7 @@ class ModelPatcher:
 
     def set_hook_mode(self, hook_mode: comfy.hooks.EnumHookMode):
         self.hook_mode = hook_mode
-    
+
     def prepare_hook_patches_current_keyframe(self, t: torch.Tensor, hook_group: comfy.hooks.HookGroup):
         curr_t = t[0]
         reset_current_hooks = False
@@ -975,7 +1005,7 @@ class ModelPatcher:
                     key = k[0]
                     if len(k) > 2:
                         function = k[2]
-                
+
                 if key in model_sd:
                     p.add(k)
                     current_patches: list[tuple] = current_hook_patches.get(key, [])
@@ -1063,7 +1093,7 @@ class ModelPatcher:
     def patch_hook_weight_to_device(self, hooks: comfy.hooks.HookGroup, combined_patches: dict, key: str, original_weights: dict, memory_counter: MemoryCounter):
         if key not in combined_patches:
             return
-        
+
         weight, set_func, convert_func = get_key_weight(self.model, key)
         weight: torch.Tensor
         if key not in self.hook_backup:
@@ -1098,7 +1128,7 @@ class ModelPatcher:
         del temp_weight
         del out_weight
         del weight
-    
+
     def unpatch_hooks(self) -> None:
         with self.use_ejected():
             if len(self.hook_backup) == 0:
@@ -1107,7 +1137,7 @@ class ModelPatcher:
             keys = list(self.hook_backup.keys())
             for k in keys:
                 comfy.utils.copy_to_param(self.model, k, self.hook_backup[k][0].to(device=self.hook_backup[k][1]))
-                    
+
             self.hook_backup.clear()
             self.current_hooks = None
 

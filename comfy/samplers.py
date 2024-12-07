@@ -219,6 +219,7 @@ def _calc_cond_batch(model: 'BaseModel', conds: list[list[dict]], x_in: torch.Te
                     default_c.append(x)
                     has_default_conds = True
                     continue
+                # 遮罩、条件等信息
                 p = comfy.samplers.get_area_and_mult(x, x_in, timestep)
                 if p is None:
                     continue
@@ -312,19 +313,27 @@ def _calc_cond_batch(model: 'BaseModel', conds: list[list[dict]], x_in: torch.Te
             else:
                 output = model.apply_model(input_x, timestep_, **c).chunk(batch_chunks)
 
+            # 遍历每个批次块
             for o in range(batch_chunks):
+                # 获取当前批次块的索引
                 cond_index = cond_or_uncond[o]
+                # 获取当前批次块的区域信息
                 a = area[o]
+                # 如果区域信息为None，则直接更新条件生成的输出和计数
                 if a is None:
                     out_conds[cond_index] += output[o] * mult[o]
                     out_counts[cond_index] += mult[o]
                 else:
+                    # 获取当前条件生成的输出和计数
                     out_c = out_conds[cond_index]
                     out_cts = out_counts[cond_index]
+                    # 计算维度数量
                     dims = len(a) // 2
+                    # 遍历每个维度，对输出和计数进行裁剪
                     for i in range(dims):
                         out_c = out_c.narrow(i + 2, a[i + dims], a[i])
                         out_cts = out_cts.narrow(i + 2, a[i + dims], a[i])
+                    # 更新裁剪后的输出和计数
                     out_c += output[o] * mult[o]
                     out_cts += mult[o]
 
@@ -361,6 +370,7 @@ def sampling_function(model, x, timestep, uncond, cond, cond_scale, model_option
         uncond_ = uncond
 
     conds = [cond, uncond_]
+    # 模型采样
     out = calc_cond_batch(model, conds, x, timestep, model_options)
 
     for fn in model_options.get("sampler_pre_cfg_function", []):
@@ -470,16 +480,31 @@ def normal_scheduler(model_sampling, steps, sgm=False, floor=False):
 
 # Implemented based on: https://arxiv.org/abs/2407.12173
 def beta_scheduler(model_sampling, steps, alpha=0.6, beta=0.6):
+    # 计算总的时间步数，基于模型采样的sigmas长度
     total_timesteps = (len(model_sampling.sigmas) - 1)
+
+    # 生成从1递减到0的时间步数组，不包括终点
     ts = 1 - numpy.linspace(0, 1, steps, endpoint=False)
+
+    # 使用beta分布的分位数函数调整时间步数组，并乘以总时间步数后四舍五入
     ts = numpy.rint(scipy.stats.beta.ppf(ts, alpha, beta) * total_timesteps)
 
+    # 初始化sigma值列表
     sigs = []
+
+    # 初始化上一个时间步变量
     last_t = -1
+
+    # 遍历时间步数组
     for t in ts:
+        # 如果当前时间步与上一个不同
         if t != last_t:
+            # 将对应时间步的sigma值添加到列表中
             sigs += [float(model_sampling.sigmas[int(t)])]
+        # 更新上一个时间步变量
         last_t = t
+
+    # 最后添加一个0.0作为结束
     sigs += [0.0]
     return torch.FloatTensor(sigs)
 

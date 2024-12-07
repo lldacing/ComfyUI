@@ -25,52 +25,95 @@ def gen_empty_tokens(special_tokens, length):
 
 class ClipTokenWeightEncoder:
     def encode_token_weights(self, token_weight_pairs):
+        """
+        编码带有权重的标记对，将权重应用于标记。
+
+        该函数处理一个带有权重的标记对列表，准备这些标记进行编码，并根据权重调整它们。它会检测是否存在非默认权重以及最大标记长度，以确保张量维度的一致性。
+
+        参数:
+        - token_weight_pairs (list): 带有权重的标记对列表，其中每个对包含一个标记及其关联的权重。
+
+        返回:
+        - 一个元组，包含编码后的表示和其他模型特定的输出。
+        """
+
+        # 存储需要编码的标记
         to_encode = list()
+        # 记录最长的标记序列长度
         max_token_len = 0
+        # 标记是否包含非默认权重
         has_weights = False
+
+        # 遍历每个标记-权重对，提取标记并计算最大标记长度
         for x in token_weight_pairs:
+            # 提取标记
             tokens = list(map(lambda a: a[0], x))
+            # 更新最大标记长度
             max_token_len = max(len(tokens), max_token_len)
+            # 检查是否有非默认权重
             has_weights = has_weights or not all(map(lambda a: a[1] == 1.0, x))
+            # 将标记添加到待编码列表
             to_encode.append(tokens)
 
+        # 计算待编码的部分数量
         sections = len(to_encode)
+
+        # 如果存在权重或没有部分，则添加空标记
         if has_weights or sections == 0:
             to_encode.append(gen_empty_tokens(self.special_tokens, max_token_len))
 
+        # 对标记进行编码
         o = self.encode(to_encode)
+        # 获取编码结果和池化输出
         out, pooled = o[:2]
 
+        # 处理池化输出
         if pooled is not None:
+            # 将池化输出移动到中间设备
             first_pooled = pooled[0:1].to(model_management.intermediate_device())
         else:
             first_pooled = pooled
 
+        # 存储最终的输出
         output = []
+
+        # 对每个部分应用权重调整
         for k in range(0, sections):
+            # 获取当前部分的编码结果
             z = out[k:k+1]
             if has_weights:
+                # 获取空标记的编码结果
                 z_empty = out[-1]
                 for i in range(len(z)):
                     for j in range(len(z[i])):
+                        # 获取当前标记的权重
                         weight = token_weight_pairs[k][j][1]
                         if weight != 1.0:
+                            # 应用权重调整
                             z[i][j] = (z[i][j] - z_empty[j]) * weight + z_empty[j]
+            # 将调整后的结果添加到输出列表
             output.append(z)
 
+        # 处理输出为空的情况
         if (len(output) == 0):
+            # 使用空标记的编码结果
             r = (out[-1:].to(model_management.intermediate_device()), first_pooled)
         else:
+            # 合并所有部分的编码结果
             r = (torch.cat(output, dim=-2).to(model_management.intermediate_device()), first_pooled)
 
+        # 处理额外的输出
         if len(o) > 2:
+            # 存储额外的输出
             extra = {}
             for k in o[2]:
                 v = o[2][k]
                 if k == "attention_mask":
+                    # 处理注意力掩码
                     v = v[:sections].flatten().unsqueeze(dim=0).to(model_management.intermediate_device())
                 extra[k] = v
 
+            # 将额外的输出添加到最终结果
             r = r + (extra,)
         return r
 

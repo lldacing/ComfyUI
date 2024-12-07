@@ -106,6 +106,7 @@ class Flux(nn.Module):
             raise ValueError("Input img and txt tensors must have 3 dimensions.")
 
         # running on sequences img
+        # (b, c, h, w)
         img = self.img_in(img)
         vec = self.time_in(timestep_embedding(timesteps, 256).to(img.dtype))
         if self.params.guidance_embed:
@@ -114,9 +115,11 @@ class Flux(nn.Module):
             vec = vec + self.guidance_in(timestep_embedding(guidance, 256).to(img.dtype))
 
         vec = vec + self.vector_in(y[:,:self.params.vec_in_dim])
+        # (batch size, sequence_len, embed_dims)
         txt = self.txt_in(txt)
 
         ids = torch.cat((txt_ids, img_ids), dim=1)
+        # 位置编码
         pe = self.pe_embedder(ids)
 
         blocks_replace = patches_replace.get("dit", {})

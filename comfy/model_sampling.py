@@ -163,6 +163,7 @@ class ModelSamplingDiscrete(torch.nn.Module):
         else:
             betas = make_beta_schedule(beta_schedule, timesteps, linear_start=linear_start, linear_end=linear_end, cosine_s=cosine_s)
         alphas = 1. - betas
+        # 每个位置的新值是前面所有（含当前）元素的累积乘积
         alphas_cumprod = torch.cumprod(alphas, dim=0)
 
         timesteps, = betas.shape
@@ -353,10 +354,19 @@ class StableCascadeSampling(ModelSamplingDiscrete):
         return ((1 - alpha_cumprod) / alpha_cumprod) ** 0.5
 
     def timestep(self, sigma):
+        # 计算变量的初始公式，基于给定的sigma值
         var = 1 / ((sigma * sigma) + 1)
+
+        # 将变量var的值限制在0到1之间，确保其在一个合理的范围内
         var = var.clamp(0, 1.0)
+
+        # 准备cosine_s和_init_alpha_cumprod张量，确保它们与var在相同的设备上
         s, min_var = self.cosine_s.to(var.device), self._init_alpha_cumprod.to(var.device)
+
+        # 计算最终的t值，使用反余弦和比例因子，这一步涉及到了三角函数和张量运算
         t = (((var * min_var) ** 0.5).acos() / (torch.pi * 0.5)) * (1 + s) - s
+
+        # 返回计算得到的t值，它代表了根据当前变量计算出的结果
         return t
 
     def percent_to_sigma(self, percent):

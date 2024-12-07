@@ -107,6 +107,7 @@ class BaseModel(torch.nn.Module):
                 operations = comfy.ops.pick_operations(unet_config.get("dtype", None), self.manual_cast_dtype, fp8_optimizations=fp8, scaled_fp8=model_config.scaled_fp8)
             else:
                 operations = model_config.custom_operations
+            # 实际执行的扩散模型
             self.diffusion_model = unet_model(**unet_config, device=device, operations=operations)
             if comfy.model_management.force_channels_last():
                 self.diffusion_model.to(memory_format=torch.channels_last)
@@ -132,29 +133,44 @@ class BaseModel(torch.nn.Module):
         ).execute(x, t, c_concat, c_crossattn, control, transformer_options, **kwargs)
 
     def _apply_model(self, x, t, c_concat=None, c_crossattn=None, control=None, transformer_options={}, **kwargs):
+        # 将 t 赋值给 sigma
         sigma = t
+        # 计算模型输入 xc
         xc = self.model_sampling.calculate_input(sigma, x)
+        # 如果 c_concat 不为空，则将 xc 和 c_concat 沿维度 1 进行拼接
         if c_concat is not None:
             xc = torch.cat([xc] + [c_concat], dim=1)
 
+        # 将 c_crossattn 赋值给 context
         context = c_crossattn
+        # 获取数据类型
         dtype = self.get_dtype()
 
+        # 如果手动设置了数据类型，则使用手动设置的数据类型
         if self.manual_cast_dtype is not None:
             dtype = self.manual_cast_dtype
 
+        # 将 xc 转换为指定的数据类型
         xc = xc.to(dtype)
+        # 处理时间步 t 并转换为浮点类型
         t = self.model_sampling.timestep(t).float()
+        # 将 context 转换为指定的数据类型
         context = context.to(dtype)
+        # 初始化一个空字典，用于存储额外条件
         extra_conds = {}
+        # 遍历 kwargs，处理每个额外条件
         for o in kwargs:
             extra = kwargs[o]
+            # 如果额外条件有 dtype 属性且不是整数类型，则将其转换为指定的数据类型
             if hasattr(extra, "dtype"):
                 if extra.dtype != torch.int and extra.dtype != torch.long:
                     extra = extra.to(dtype)
+            # 将处理后的额外条件添加到字典中
             extra_conds[o] = extra
 
+        # 将处理后的输入传递给扩散模型，并获取模型预测噪声
         model_output = self.diffusion_model(xc, t, context=context, control=control, transformer_options=transformer_options, **extra_conds).float()
+        # 计算并返回去噪后的输出
         return self.model_sampling.calculate_denoised(sigma, model_output, x)
 
     def get_dtype(self):

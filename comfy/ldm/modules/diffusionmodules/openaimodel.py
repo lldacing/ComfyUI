@@ -906,6 +906,7 @@ class UNetModel(nn.Module):
                 output_shape = hs[-1].shape
             else:
                 output_shape = None
+            # 上采样层
             h = forward_timestep_embed(module, h, emb, context, transformer_options, output_shape, time_context=time_context, num_video_frames=num_video_frames, image_only_indicator=image_only_indicator)
         h = h.type(x.dtype)
         if self.predict_codebook_ids:

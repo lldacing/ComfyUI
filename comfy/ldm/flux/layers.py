@@ -17,7 +17,15 @@ class EmbedND(nn.Module):
         self.axes_dim = axes_dim
 
     def forward(self, ids: Tensor) -> Tensor:
+        # 获取ids张量的最后一个维度大小，用于后续的循环
         n_axes = ids.shape[-1]
+
+        # 使用torch.cat拼接多个经过rope函数处理的张量
+        # ids[..., i]通过索引获取最后一个维度上的每个元素，用于rope函数的输入
+        # self.axes_dim[i]从模型定义的axes_dim列表中获取当前维度对应的嵌入维度
+        # self.theta是模型定义的参数，用于rope函数中的旋转操作
+        # dim=-3指定张量拼接的维度，这里选择倒数第三个维度进行拼接
+        # 得到一个[bs, 1, 1536, 64, 2, 2]的张量
         emb = torch.cat(
             [rope(ids[..., i], self.axes_dim[i], self.theta) for i in range(n_axes)],
             dim=-3,
@@ -37,9 +45,11 @@ def timestep_embedding(t: Tensor, dim, max_period=10000, time_factor: float = 10
     """
     t = time_factor * t
     half = dim // 2
+    # freqs=e^(−log(1000)⋅[1,2,3....,half])
     freqs = torch.exp(-math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32, device=t.device) / half)
 
     args = t[:, None].float() * freqs[None]
+    # embedding=torch.cat(cos(t * freqs),sin(t * freqs))
     embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
     if dim % 2:
         embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)

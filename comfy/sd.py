@@ -570,20 +570,28 @@ class TEModel(Enum):
     T5_BASE = 6
 
 def detect_te_model(sd):
+    # 检查模型权重以确定模型类型
     if "text_model.encoder.layers.30.mlp.fc1.weight" in sd:
+        # 如果找到CLIP_G模型的特定权重，则返回CLIP_G
         return TEModel.CLIP_G
     if "text_model.encoder.layers.22.mlp.fc1.weight" in sd:
+        # 如果找到CLIP_H模型的特定权重，则返回CLIP_H
         return TEModel.CLIP_H
     if "text_model.encoder.layers.0.mlp.fc1.weight" in sd:
+        # 如果找到CLIP_L模型的特定权重，则返回CLIP_L
         return TEModel.CLIP_L
     if "encoder.block.23.layer.1.DenseReluDense.wi_1.weight" in sd:
+        # 对于T5模型，通过特定层的权重形状来区分不同的模型大小
         weight = sd["encoder.block.23.layer.1.DenseReluDense.wi_1.weight"]
+        # 根据权重的最后一个维度大小判断模型类型
         if weight.shape[-1] == 4096:
             return TEModel.T5_XXL
         elif weight.shape[-1] == 2048:
             return TEModel.T5_XL
     if "encoder.block.0.layer.0.SelfAttention.k.weight" in sd:
+        # 如果找到T5_BASE模型的特定权重，则返回T5_BASE
         return TEModel.T5_BASE
+    # 如果没有匹配到任何特定模型的权重，则返回None
     return None
 
 

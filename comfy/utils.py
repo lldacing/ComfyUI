@@ -120,6 +120,7 @@ def state_dict_prefix_replace(state_dict, replace_prefix, filter_keys=False):
 
 
 def transformers_convert(sd, prefix_from, prefix_to, number):
+    # 定义需要替换的键名映射，将原始键名映射到新的键名
     keys_to_replace = {
         "{}positional_embedding": "{}embeddings.position_embedding.weight",
         "{}token_embedding.weight": "{}embeddings.token_embedding.weight",
@@ -127,11 +128,13 @@ def transformers_convert(sd, prefix_from, prefix_to, number):
         "{}ln_final.bias": "{}final_layer_norm.bias",
     }
 
+    # 遍历键名映射，检查当前状态字典中是否存在这些键，如果存在，则重命名这些键
     for k in keys_to_replace:
         x = k.format(prefix_from)
         if x in sd:
             sd[keys_to_replace[k].format(prefix_to)] = sd.pop(x)
 
+    # 定义ResBlock中需要替换的子模块映射
     resblock_to_replace = {
         "ln_1": "layer_norm1",
         "ln_2": "layer_norm2",
@@ -140,6 +143,7 @@ def transformers_convert(sd, prefix_from, prefix_to, number):
         "attn.out_proj": "self_attn.out_proj",
     }
 
+    # 遍历每个ResBlock，根据映射替换相应的键名
     for resblock in range(number):
         for x in resblock_to_replace:
             for y in ["weight", "bias"]:
@@ -148,6 +152,7 @@ def transformers_convert(sd, prefix_from, prefix_to, number):
                 if k in sd:
                     sd[k_to] = sd.pop(k)
 
+        # 处理注意力机制中的in_proj权重，将其拆分为q_proj, k_proj, v_proj
         for y in ["weight", "bias"]:
             k_from = "{}transformer.resblocks.{}.attn.in_proj_{}".format(prefix_from, resblock, y)
             if k_from in sd:
@@ -161,12 +166,15 @@ def transformers_convert(sd, prefix_from, prefix_to, number):
     return sd
 
 def clip_text_transformers_convert(sd, prefix_from, prefix_to):
+    # 转换模型状态字典中的键名，以适配新的模型结构
     sd = transformers_convert(sd, prefix_from, "{}text_model.".format(prefix_to), 32)
 
+    # 更新文本投影权重的键名，如果存在则进行转换
     tp = "{}text_projection.weight".format(prefix_from)
     if tp in sd:
         sd["{}text_projection.weight".format(prefix_to)] = sd.pop(tp)
 
+    # 更新文本投影层的权重，如果存在则进行转换并调整其结构
     tp = "{}text_projection".format(prefix_from)
     if tp in sd:
         sd["{}text_projection.weight".format(prefix_to)] = sd.pop(tp).transpose(0, 1).contiguous()

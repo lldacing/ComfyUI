@@ -206,19 +206,31 @@ class LatentOperationTonemapReinhard:
 
     def op(self, multiplier):
         def tonemap_reinhard(latent, **kwargs):
+            # 计算潜在向量的 magnitude，避免除以零
             latent_vector_magnitude = (torch.linalg.vector_norm(latent, dim=(1)) + 0.0000000001)[:,None]
+
+            # 对潜在向量进行归一化
             normalized_latent = latent / latent_vector_magnitude
 
+            # 计算潜在向量 magnitude 的均值和标准差，用于后续的统计标准化
             mean = torch.mean(latent_vector_magnitude, dim=(1,2,3), keepdim=True)
             std = torch.std(latent_vector_magnitude, dim=(1,2,3), keepdim=True)
 
+            # 计算顶部阈值，用于限制潜在向量的 magnitude
             top = (std * 5 + mean) * multiplier
 
             #reinhard
+            # Reinhard tone mapping 的实现开始
+            # 将潜在向量的 magnitude 与顶部阈值进行归一化
             latent_vector_magnitude *= (1.0 / top)
+
+            # 应用 Reinhard tone mapping 公式，对潜在向量的 magnitude 进行压缩
             new_magnitude = latent_vector_magnitude / (latent_vector_magnitude + 1.0)
+
+            # 将压缩后的 magnitude 重新放缩到原来的顶部阈值
             new_magnitude *= top
 
+            # 返回经过 Reinhard tone mapping 调整后的潜在向量
             return normalized_latent * new_magnitude
         return (tonemap_reinhard,)
 
