@@ -314,6 +314,9 @@ class LoadedModel:
     def model_memory(self):
         return self.model.model_size()
 
+    def model_loaded_memory(self):
+        return self.model.loaded_size()
+
     def model_offloaded_memory(self):
         return self.model.model_size() - self.model.loaded_size()
 
@@ -528,15 +531,17 @@ def load_models_gpu(models, memory_required=0, force_patch_weights=False, minimu
         lowvram_model_memory = 0
         if lowvram_available and (vram_set_state == VRAMState.LOW_VRAM or vram_set_state == VRAMState.NORMAL_VRAM) and not force_full_load:
             model_size = loaded_model.model_memory_required(torch_dev)
-            current_free_mem = get_free_memory(torch_dev)
-            lowvram_model_memory = max(64 * (1024 * 1024), (current_free_mem - minimum_memory_required), min(current_free_mem * 0.4, current_free_mem - minimum_inference_memory()))
+            loaded_memory = loaded_model.model_loaded_memory()
+            current_free_mem = get_free_memory(torch_dev) + loaded_memory
+            lowvram_model_memory = max(64 * 1024 * 1024, (current_free_mem - minimum_memory_required), min(current_free_mem * 0.4, current_free_mem - minimum_inference_memory()))
+            lowvram_model_memory = max(0.1, lowvram_model_memory - loaded_memory)
             if model_size <= lowvram_model_memory: #only switch to lowvram if really necessary
                 lowvram_model_memory = 0
 
         if vram_set_state == VRAMState.NO_VRAM:
             lowvram_model_memory = 64 * 1024 * 1024
 
-        cur_loaded_model = loaded_model.model_load(lowvram_model_memory, force_patch_weights=force_patch_weights)
+        loaded_model.model_load(lowvram_model_memory, force_patch_weights=force_patch_weights)
         current_loaded_models.insert(0, loaded_model)
     return
 
@@ -606,9 +611,7 @@ def unet_offload_device():
 def unet_inital_load_device(parameters, dtype):
     # 获取当前的Torch设备
     torch_dev = get_torch_device()
-
-    # 如果VRAM状态是高VRAM，则直接返回当前的Torch设备
-    if vram_state == VRAMState.HIGH_VRAM:
+    if vram_state == VRAMState.HIGH_VRAM or vram_state == VRAMState.SHARED:
         return torch_dev
 
     # 定义CPU设备
@@ -740,7 +743,7 @@ def text_encoder_initial_device(load_device, offload_device, model_size=0):
         return offload_device
 
     if is_device_mps(load_device):
-        return offload_device
+        return load_device
 
     mem_l = get_free_memory(load_device)
     mem_o = get_free_memory(offload_device)
@@ -882,6 +885,8 @@ def cast_to_device(tensor, device, dtype, copy=False):
     non_blocking = device_supports_non_blocking(device)
     return cast_to(tensor, dtype=dtype, device=device, non_blocking=non_blocking, copy=copy)
 
+def sage_attention_enabled():
+    return args.use_sage_attention
 
 def xformers_enabled():
     global directml_enabled
@@ -1132,7 +1137,7 @@ def unload_all_models():
 
 
 def resolve_lowvram_weight(weight, model, key): #TODO: remove
-    print("WARNING: The comfy.model_management.resolve_lowvram_weight function will be removed soon, please stop using it.")
+    logging.warning("The comfy.model_management.resolve_lowvram_weight function will be removed soon, please stop using it.")
     return weight
 
 #TODO: might be cleaner to put this somewhere else

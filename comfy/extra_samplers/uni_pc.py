@@ -1,10 +1,10 @@
 #code taken from: https://github.com/wl-zhao/UniPC and modified
 
 import torch
-import torch.nn.functional as F
 import math
+import logging
 
-from tqdm.auto import trange, tqdm
+from tqdm.auto import trange
 
 
 class NoiseScheduleVP:
@@ -475,7 +475,7 @@ class UniPC:
             return self.multistep_uni_pc_vary_update(x, model_prev_list, t_prev_list, t, order, **kwargs)
 
     def multistep_uni_pc_vary_update(self, x, model_prev_list, t_prev_list, t, order, use_corrector=True):
-        print(f'using unified predictor-corrector with order {order} (solver type: vary coeff)')
+        logging.info(f'using unified predictor-corrector with order {order} (solver type: vary coeff)')
         ns = self.noise_schedule
         assert order <= len(model_prev_list)
 
@@ -519,7 +519,6 @@ class UniPC:
             A_p = C_inv_p
 
         if use_corrector:
-            print('using corrector')
             C_inv = torch.linalg.inv(C)
             A_c = C_inv
 
@@ -704,7 +703,6 @@ class UniPC:
     ):
         # t_0 = 1. / self.noise_schedule.total_N if t_end is None else t_end
         # t_T = self.noise_schedule.T if t_start is None else t_start
-        device = x.device
         steps = len(timesteps) - 1
         if method == 'multistep':
             assert steps >= order

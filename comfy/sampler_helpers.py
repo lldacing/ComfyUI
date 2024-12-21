@@ -1,6 +1,5 @@
 from __future__ import annotations
 import uuid
-import torch
 import comfy.model_management
 import comfy.conds
 import comfy.utils
@@ -104,7 +103,6 @@ def cleanup_additional_models(models):
 
 
 def prepare_sampling(model: 'ModelPatcher', noise_shape, conds):
-    device = model.load_device
     real_model: 'BaseModel' = None
     models, inference_memory = get_additional_models(conds, model.model_dtype())
     models += model.get_nested_additional_models()  # TODO: does this require inference_memory update?
