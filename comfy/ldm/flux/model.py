@@ -65,6 +65,7 @@ class Flux(nn.Module):
         )
         self.txt_in = operations.Linear(params.context_in_dim, self.hidden_size, dtype=dtype, device=device)
 
+        # 19个
         self.double_blocks = nn.ModuleList(
             [
                 DoubleStreamBlock(
@@ -78,6 +79,7 @@ class Flux(nn.Module):
             ]
         )
 
+        # 38个
         self.single_blocks = nn.ModuleList(
             [
                 SingleStreamBlock(self.hidden_size, self.num_heads, mlp_ratio=params.mlp_ratio, dtype=dtype, device=device, operations=operations)

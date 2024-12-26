@@ -91,8 +91,11 @@ class WrapperExecutor:
     def __init__(self, original: Callable, class_obj: object, wrappers: list[Callable], idx: int):
         # NOTE: class_obj exists so that wrappers surrounding a class method can access
         #       the class instance at runtime via executor.class_obj
+        # 原始方法
         self.original = original
+        # 原始方法的类实例
         self.class_obj = class_obj
+        # 包装方法列表
         self.wrappers = wrappers.copy()
         self.idx = idx
         self.is_last = idx == len(wrappers)

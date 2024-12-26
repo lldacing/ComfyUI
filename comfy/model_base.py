@@ -86,6 +86,7 @@ def model_sampling(model_config, model_type):
         c = comfy.model_sampling.CONST
         s = comfy.model_sampling.ModelSamplingFlux
 
+    # 动态继承s和c，调用时会执行s的__init__方法
     class ModelSampling(s, c):
         pass
 

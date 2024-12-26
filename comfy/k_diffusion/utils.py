@@ -23,6 +23,8 @@ def append_dims(x, target_dims):
     dims_to_append = target_dims - x.ndim
     if dims_to_append < 0:
         raise ValueError(f'input has {x.ndim} dims but target_dims is {target_dims}, which is less')
+    # Ellipsis（即...）：用于表示所有维度或在切片操作中作为占位符。作用同冒号，只是自适应冒号个数
+    # None：用于增加新的维度。
     expanded = x[(...,) + (None,) * dims_to_append]
     # MPS will get inf values if it tries to index into the new axes, but detaching fixes this.
     # https://github.com/pytorch/pytorch/issues/84364

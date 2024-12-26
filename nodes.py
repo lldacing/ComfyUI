@@ -1499,17 +1499,21 @@ class SetLatentNoiseMask:
         return (s,)
 
 def common_ksampler(model, seed, steps, cfg, sampler_name, scheduler, positive, negative, latent, denoise=1.0, disable_noise=False, start_step=None, last_step=None, force_full_denoise=False):
+    # vae编码后的潜空间图片张量
     latent_image = latent["samples"]
     latent_image = comfy.sample.fix_empty_latent_channels(model, latent_image)
 
     if disable_noise:
+        # 禁用噪声，生成全0的噪声
         noise = torch.zeros(latent_image.size(), dtype=latent_image.dtype, layout=latent_image.layout, device="cpu")
     else:
+        # 为每个批次生成噪声
         batch_inds = latent["batch_index"] if "batch_index" in latent else None
         noise = comfy.sample.prepare_noise(latent_image, seed, batch_inds)
 
     noise_mask = None
     if "noise_mask" in latent:
+        # 遮罩图
         noise_mask = latent["noise_mask"]
 
     callback = latent_preview.prepare_callback(model, steps)

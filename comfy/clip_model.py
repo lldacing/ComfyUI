@@ -98,6 +98,7 @@ class CLIPTextModel_(torch.nn.Module):
         self.final_layer_norm = operations.LayerNorm(embed_dim, dtype=dtype, device=device)
 
     def forward(self, input_tokens, attention_mask=None, intermediate_output=None, final_layer_norm_intermediate=True, dtype=torch.float32):
+        # (1,77)->(1,77,768)
         x = self.embeddings(input_tokens, dtype=dtype)
         mask = None
         if attention_mask is not None:
@@ -115,7 +116,7 @@ class CLIPTextModel_(torch.nn.Module):
         if i is not None and final_layer_norm_intermediate:
             i = self.final_layer_norm(i)
 
-        # 提取每个样本在 eos_token_id（用于标识句子或文本序列的结束位置） 位置的输出
+        # 提取每个样本在 eos_token_id（用于标识句子或文本序列的结束位置） 位置的输出, (1,768)
         pooled_output = x[torch.arange(x.shape[0], device=x.device), (torch.round(input_tokens).to(dtype=torch.int, device=x.device) == self.eos_token_id).int().argmax(dim=-1),]
         return x, i, pooled_output
 

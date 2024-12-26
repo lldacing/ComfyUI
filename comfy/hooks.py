@@ -278,6 +278,7 @@ class HookGroup:
     def get_dict_repr(self):
         d: dict[EnumHookType, dict[Hook, None]] = {}
         for hook in self.hooks:
+            # 类似java中map.getDefault(key, default)
             with_type = d.setdefault(hook.hook_type, {})
             with_type[hook] = None
         return d

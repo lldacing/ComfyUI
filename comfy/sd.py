@@ -147,6 +147,7 @@ class CLIP:
             cond = pooled_dict.pop("cond")
             # add/update any keys with the provided add_dict
             pooled_dict.update(add_dict)
+            # [[cond, {"pooled_output": pooled_dict}]]
             all_cond_pooled.append([cond, pooled_dict])
         else:
             scheduled_keyframes = all_hooks.get_hooks_for_clip_schedule()

@@ -457,8 +457,10 @@ def pad_tensor_to_shape(tensor: torch.Tensor, new_shape: list[int]) -> torch.Ten
 
 def calculate_weight(patches, weight, key, intermediate_dtype=torch.float32, original_weights=None):
     for p in patches:
+        # keyframe weight
         strength = p[0]
         v = p[1]
+        # patch weights
         strength_model = p[2]
         offset = p[3]
         function = p[4]
@@ -499,8 +501,10 @@ def calculate_weight(patches, weight, key, intermediate_dtype=torch.float32, ori
             weight.copy_(v[0])
         elif patch_type == "model_as_lora":
             target_weight: torch.Tensor = v[0]
+            # patch model as lora weight - base model weight
             diff_weight = comfy.model_management.cast_to_device(target_weight, weight.device, intermediate_dtype) - \
                           comfy.model_management.cast_to_device(original_weights[key][0][0], weight.device, intermediate_dtype)
+            # basemodel_weight = basemodel_weight * patch_strength_model + patch_current_keyframe_strength * (patch_weight - basemodel_weight)
             weight += function(strength * comfy.model_management.cast_to_device(diff_weight, weight.device, weight.dtype))
         elif patch_type == "lora": #lora/locon
             mat1 = comfy.model_management.cast_to_device(v[0], weight.device, intermediate_dtype)

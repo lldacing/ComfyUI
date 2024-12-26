@@ -13,7 +13,8 @@ def prepare_noise(latent_image, seed, noise_inds=None):
     generator = torch.manual_seed(seed)
     if noise_inds is None:
         return torch.randn(latent_image.size(), dtype=latent_image.dtype, layout=latent_image.layout, generator=generator, device="cpu")
-    
+
+    # 去重unique_inds是去重后的元素列表，inverse是去重前元素对应去重后unique_inds中的索引位置
     unique_inds, inverse = np.unique(noise_inds, return_inverse=True)
     noises = []
     for i in range(unique_inds[-1]+1):

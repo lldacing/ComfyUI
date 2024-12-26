@@ -57,6 +57,7 @@ class CONDCrossAttn(CONDRegular):
         crossattn_max_len = self.cond.shape[1]
         for x in others:
             c = x.cond
+            # 计算条件序列长度的最小公倍数
             crossattn_max_len = lcm(crossattn_max_len, c.shape[1])
             conds.append(c)
 

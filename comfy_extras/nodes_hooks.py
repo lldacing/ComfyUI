@@ -528,6 +528,7 @@ class CreateHookKeyframesInterpolated:
         if prev_hook_kf is None:
             prev_hook_kf = comfy.hooks.HookKeyframeGroup()
         prev_hook_kf = prev_hook_kf.clone()
+        # 根据开始、结束和数量取间隔值
         percents = comfy.hooks.InterpolationMethod.get_weights(num_from=start_percent, num_to=end_percent, length=keyframes_count,
                                                                method=comfy.hooks.InterpolationMethod.LINEAR)
         strengths = comfy.hooks.InterpolationMethod.get_weights(num_from=strength_start, num_to=strength_end, length=keyframes_count, method=interpolation)

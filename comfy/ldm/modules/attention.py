@@ -567,6 +567,7 @@ class BasicTransformerBlock(nn.Module):
             self.norm_in = operations.LayerNorm(dim, dtype=dtype, device=device)
             self.ff_in = FeedForward(dim, dim_out=inner_dim, dropout=dropout, glu=gated_ff, dtype=dtype, device=device, operations=operations)
 
+        # self-attention
         self.disable_self_attn = disable_self_attn
         self.attn1 = CrossAttention(query_dim=inner_dim, heads=n_heads, dim_head=d_head, dropout=dropout,
                               context_dim=context_dim if self.disable_self_attn else None, attn_precision=self.attn_precision, dtype=dtype, device=device, operations=operations)  # is a self-attention if not self.disable_self_attn

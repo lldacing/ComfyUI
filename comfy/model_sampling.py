@@ -163,7 +163,7 @@ class ModelSamplingDiscrete(torch.nn.Module):
         else:
             betas = make_beta_schedule(beta_schedule, timesteps, linear_start=linear_start, linear_end=linear_end, cosine_s=cosine_s)
         alphas = 1. - betas
-        # 每个位置的新值是前面所有（含当前）元素的累积乘积
+        # 每个位置的新值是前面所有（含当前）元素的累积乘积。因为原值都是小于1的，对应位置元素值都变小了
         alphas_cumprod = torch.cumprod(alphas, dim=0)
 
         timesteps, = betas.shape
@@ -175,6 +175,7 @@ class ModelSamplingDiscrete(torch.nn.Module):
         # self.register_buffer('alphas_cumprod', torch.tensor(alphas_cumprod, dtype=torch.float32))
         # self.register_buffer('alphas_cumprod_prev', torch.tensor(alphas_cumprod_prev, dtype=torch.float32))
 
+        # 元素值逐步递增
         sigmas = ((1 - alphas_cumprod) / alphas_cumprod) ** 0.5
         if zsnr:
             sigmas = rescale_zero_terminal_snr_sigmas(sigmas)
@@ -194,16 +195,30 @@ class ModelSamplingDiscrete(torch.nn.Module):
         return self.sigmas[-1]
 
     def timestep(self, sigma):
+        # 计算自然对数
         log_sigma = sigma.log()
+        # 差值
         dists = log_sigma.to(self.log_sigmas.device) - self.log_sigmas[:, None]
+        # 计算绝对值差，并找到沿第一个维度的最小值索引
         return dists.abs().argmin(dim=0).view(sigma.shape).to(sigma.device)
 
     def sigma(self, timestep):
+        # 将时间步转换为浮点数并限制其范围，以适应self.log_sigmas的索引范围
         t = torch.clamp(timestep.float().to(self.log_sigmas.device), min=0, max=(len(self.sigmas) - 1))
+
+        # 计算时间步对应的较低索引
         low_idx = t.floor().long()
+
+        # 计算时间步对应的较高索引
         high_idx = t.ceil().long()
+
+        # 计算时间步的小数部分，用于后续的线性插值
         w = t.frac()
+
+        # 使用线性插值计算log_sigma的值
         log_sigma = (1 - w) * self.log_sigmas[low_idx] + w * self.log_sigmas[high_idx]
+
+        # 返回sigma的值，即log_sigma的指数，并确保其在正确的设备上
         return log_sigma.exp().to(timestep.device)
 
     def percent_to_sigma(self, percent):

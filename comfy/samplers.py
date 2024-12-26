@@ -415,7 +415,7 @@ class KSamplerX0Inpaint:
             latent_mask = 1. - denoise_mask
             # 根据噪声标准差和掩码对图像进行修复和降噪
             x = x * denoise_mask + self.inner_model.inner_model.model_sampling.noise_scaling(sigma.reshape([sigma.shape[0]] + [1] * (len(self.noise.shape) - 1)), self.noise, self.latent_image) * latent_mask
-        # 使用内部模型对图像进行进一步处理
+        # 使用内部模型(CFGGuider)对图像进行进一步处理
         out = self.inner_model(x, sigma, model_options=model_options, seed=seed)
         # 如果提供了降噪掩码，则将修复后的图像与原始图像相结合
         if denoise_mask is not None:
@@ -424,11 +424,17 @@ class KSamplerX0Inpaint:
 
 
 def simple_scheduler(model_sampling, steps):
+    # 初始化变量s为model_sampling
     s = model_sampling
+    # 初始化一个空列表sigs，用于存储后续计算得到的sigma值
     sigs = []
+    # 计算每个步骤中sigma的间隔
     ss = len(s.sigmas) / steps
+    # 循环steps次，根据计算得到的间隔ss来选择s.sigmas中的元素
     for x in range(steps):
+        # 计算索引位置并取相应的sigma值，然后将其添加到sigs列表中，（从大到小）
         sigs += [float(s.sigmas[-(1 + int(x * ss))])]
+    # 在sigs列表的末尾添加0.0
     sigs += [0.0]
     return torch.FloatTensor(sigs)
 
@@ -976,6 +982,7 @@ class CFGGuider:
 
         extra_args = {"model_options": comfy.model_patcher.create_model_options_clone(self.model_options), "seed": seed}
 
+        # sampler是KSAMPLER 类的实例
         executor = comfy.patcher_extension.WrapperExecutor.new_class_executor(
             sampler.sample,
             sampler,
@@ -989,6 +996,7 @@ class CFGGuider:
         device = self.model_patcher.load_device
 
         if denoise_mask is not None:
+            # 形状对齐noise => (batch_size, 4, latent_h, latent_w)
             denoise_mask = comfy.sampler_helpers.prepare_mask(denoise_mask, noise.shape, device)
 
         noise = noise.to(device)
@@ -1042,6 +1050,7 @@ def sample(model, noise, positive, negative, cfg, device, sampler, sigmas, model
     cfg_guider = CFGGuider(model)
     cfg_guider.set_conds(positive, negative)
     cfg_guider.set_cfg(cfg)
+    # sampler参数是KSAMPLER对象
     return cfg_guider.sample(noise, latent_image, sampler, sigmas, denoise_mask, callback, disable_pbar, seed)
 
 
@@ -1120,28 +1129,41 @@ class KSampler:
             if denoise <= 0.0:
                 self.sigmas = torch.FloatTensor([])
             else:
+                # 总步数
                 new_steps = int(steps/denoise)
+                # 根据步数计算 sigmas
                 sigmas = self.calculate_sigmas(new_steps).to(self.device)
+                # 最后面补了0，所以是-(steps+1)
                 self.sigmas = sigmas[-(steps + 1):]
 
     def sample(self, noise, positive, negative, cfg, latent_image=None, start_step=None, last_step=None, force_full_denoise=False, denoise_mask=None, sigmas=None, callback=None, disable_pbar=False, seed=None):
         if sigmas is None:
             sigmas = self.sigmas
 
+        # 如果last_step变量不为空且其值小于sigmas列表长度减1
         if last_step is not None and last_step < (len(sigmas) - 1):
+            # 将sigmas列表裁剪到last_step（包含last_step）
             sigmas = sigmas[:last_step + 1]
+            # 如果force_full_denoise标志为真，则将sigmas列表的最后一个元素设置为0
             if force_full_denoise:
                 sigmas[-1] = 0
 
+        # 如果start_step变量不为空
         if start_step is not None:
+            # 如果start_step小于(sigmas列表长度减1)
             if start_step < (len(sigmas) - 1):
+                # 将sigmas列表裁剪到start_step位置开始到末尾
                 sigmas = sigmas[start_step:]
             else:
+                # 如果latent_image变量不为空
                 if latent_image is not None:
+                    # 返回latent_image作为结果
                     return latent_image
                 else:
+                    # 否则返回一个与noise张量形状相同但全为0的张量
                     return torch.zeros_like(noise)
 
+        # 根据采样方法名实例化采样对象KSAMPLER
         sampler = sampler_object(self.sampler)
 
         return sample(self.model, noise, positive, negative, cfg, self.device, sampler, sigmas, self.model_options, latent_image=latent_image, denoise_mask=denoise_mask, callback=callback, disable_pbar=disable_pbar, seed=seed)

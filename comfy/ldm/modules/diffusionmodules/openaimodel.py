@@ -831,6 +831,7 @@ class UNetModel(nn.Module):
         return comfy.patcher_extension.WrapperExecutor.new_class_executor(
             self._forward,
             self,
+            # {"transformer_options": {"wrappers": {"diffusion_model": [function1, function2]}}}
             comfy.patcher_extension.get_all_wrappers(comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL, transformer_options)
         ).execute(x, timesteps, context, y, control, transformer_options, **kwargs)
 

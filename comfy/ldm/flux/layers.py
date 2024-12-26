@@ -61,6 +61,7 @@ class MLPEmbedder(nn.Module):
     def __init__(self, in_dim: int, hidden_dim: int, dtype=None, device=None, operations=None):
         super().__init__()
         self.in_layer = operations.Linear(in_dim, hidden_dim, bias=True, dtype=dtype, device=device)
+        # SiLU(x)=x⋅Sigmoid(x)
         self.silu = nn.SiLU()
         self.out_layer = operations.Linear(hidden_dim, hidden_dim, bias=True, dtype=dtype, device=device)
 

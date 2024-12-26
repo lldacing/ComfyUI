@@ -27,6 +27,7 @@ class BasicScheduler:
         if denoise < 1.0:
             if denoise <= 0.0:
                 return (torch.FloatTensor([]),)
+            # 根据denoise计算总步数
             total_steps = int(steps/denoise)
 
         sigmas = comfy.samplers.calculate_sigmas(model.get_model_object("model_sampling"), scheduler, total_steps).cpu()

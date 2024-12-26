@@ -68,7 +68,7 @@ class ClipTokenWeightEncoder:
 
         # 对标记进行编码
         o = self.encode(to_encode)
-        # 获取编码结果和池化输出
+        # 获取编码结果和池化输出(位置编码)
         out, pooled = o[:2]
 
         # 处理池化输出
@@ -264,6 +264,7 @@ class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
         if self.enable_attention_masks:
             attention_mask_model = attention_mask
 
+        # x[0], x[1]--i, out(x[2]), x[2]--pooled
         outputs = self.transformer(tokens, attention_mask_model, intermediate_output=self.layer_idx, final_layer_norm_intermediate=self.layer_norm_hidden_state, dtype=torch.float32)
         self.transformer.set_input_embeddings(backup_embeds)
 

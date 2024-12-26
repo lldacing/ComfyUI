@@ -992,7 +992,9 @@ def reshape_mask(input_mask, output_shape):
 
     mask = torch.nn.functional.interpolate(input_mask, size=output_shape[2:], mode=scale_mode)
     if mask.shape[1] < output_shape[1]:
+        # (1, 1, latent_h, latent_w) => (1, 4, latent_h, latent_w)
         mask = mask.repeat((1, output_shape[1]) + (1,) * dims)[:,:output_shape[1]]
+    # (1, 4, latent_h, latent_w) => (batch_size, 4, latent_h, latent_w)
     mask = repeat_to_batch_size(mask, output_shape[0])
     return mask
 

@@ -142,17 +142,23 @@ def sample_euler(model, x, sigmas, extra_args=None, callback=None, disable=None,
     extra_args = {} if extra_args is None else extra_args
     s_in = x.new_ones([x.shape[0]])
     for i in trange(len(sigmas) - 1, disable=disable):
+        # 如果s_churn大于0，计算gamma值，否则将gamma设为0
         if s_churn > 0:
+            # 当sigmas[i]在[s_tmin, s_tmax]范围内时，计算gamma，否则将gamma设为0
             gamma = min(s_churn / (len(sigmas) - 1), 2 ** 0.5 - 1) if s_tmin <= sigmas[i] <= s_tmax else 0.
+            # 根据gamma计算调整后的sigma值（sigma_hat）
             sigma_hat = sigmas[i] * (gamma + 1)
         else:
             gamma = 0
             sigma_hat = sigmas[i]
 
+        # 如果gamma大于0，向x添加噪声
         if gamma > 0:
+            # 生成与x形状相同的随机噪声，并乘以s_noise
             eps = torch.randn_like(x) * s_noise
+            # 更新x，添加噪声，噪声强度由sigma_hat和sigmas[i]决定
             x = x + eps * (sigma_hat ** 2 - sigmas[i] ** 2) ** 0.5
-        # 会调用模型的forword方法
+        # 会调用KSamplerX0Inpaint，最终调用unet的forword方法
         denoised = model(x, sigma_hat * s_in, **extra_args)
         d = to_d(x, sigma_hat, denoised)
         if callback is not None:
