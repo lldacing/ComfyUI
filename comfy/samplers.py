@@ -809,7 +809,7 @@ class KSAMPLER(Sampler):
         执行采样过程。
 
         参数:
-        - model_wrap: 一个封装了模型的对象，提供了访问模型的方法。
+        - model_wrap: 一个封装了模型的对象(CFGGuider)，提供了访问模型的方法。
         - sigmas: 一个列表，包含了采样过程中的噪声标准差。
         - extra_args: 一个字典，包含了额外的参数，这些参数将传递给采样函数。
         - callback: 一个回调函数，用于在采样过程中触发某些操作。
@@ -1136,6 +1136,9 @@ class CFGGuider:
 
 
 def sample(model, noise, positive, negative, cfg, device, sampler, sigmas, model_options={}, latent_image=None, denoise_mask=None, callback=None, disable_pbar=False, seed=None):
+    """
+    从sample.sample和sample.sample_custom方法中调用
+    """
     cfg_guider = CFGGuider(model)
     cfg_guider.set_conds(positive, negative)
     cfg_guider.set_cfg(cfg)

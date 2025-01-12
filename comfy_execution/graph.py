@@ -117,6 +117,7 @@ class DynamicPrompt:
         """
         return self.original_prompt
 
+
 def get_input_info(class_def, input_name, valid_inputs=None):
     """
     获取输入信息

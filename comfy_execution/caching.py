@@ -142,7 +142,25 @@ class CacheKeySetInputSignature(CacheKeySet):
                     self.get_ordered_ancestry_internal(dynprompt, ancestor_id, ancestors, order_mapping)
 
 class BasicCache:
+    """
+    基本缓存类，提供缓存的基本功能。
+
+    属性：
+    - key_class: 缓存键的类型。
+    - initialized: 标记缓存是否已初始化，默认为 False。
+    - dynprompt: 动态提示对象。
+    - cache_key_set: 缓存键集合对象。
+    - cache: 存储缓存条目的字典。
+    - subcaches: 存储子缓存的字典。
+    """
+
     def __init__(self, key_class):
+        """
+        初始化 BasicCache 类，设置缓存键类型。
+
+        参数：
+        - key_class: 缓存键的类型。
+        """
         self.key_class = key_class
         self.initialized = False
         self.dynprompt: DynamicPrompt
@@ -151,12 +169,26 @@ class BasicCache:
         self.subcaches = {}
 
     def set_prompt(self, dynprompt, node_ids, is_changed_cache):
+        """
+        设置动态提示信息，并初始化缓存键集合。
+
+        参数：
+        - dynprompt: 动态提示对象。
+        - node_ids: 节点 ID 列表。
+        - is_changed_cache: 标记缓存是否已更改。
+        """
         self.dynprompt = dynprompt
         self.cache_key_set = self.key_class(dynprompt, node_ids, is_changed_cache)
         self.is_changed_cache = is_changed_cache
         self.initialized = True
 
     def all_node_ids(self):
+        """
+        获取所有节点 ID，包括子缓存中的节点 ID。
+
+        返回：
+        - 所有节点 ID 的集合。
+        """
         assert self.initialized
         node_ids = self.cache_key_set.all_node_ids()
         for subcache in self.subcaches.values():
@@ -164,6 +196,9 @@ class BasicCache:
         return node_ids
 
     def _clean_cache(self):
+        """
+        清理未使用的缓存条目，保留当前使用的键。
+        """
         preserve_keys = set(self.cache_key_set.get_used_keys())
         to_remove = []
         for key in self.cache:
@@ -173,6 +208,9 @@ class BasicCache:
             del self.cache[key]
 
     def _clean_subcaches(self):
+        """
+        清理未使用的子缓存，保留当前使用的子缓存键。
+        """
         preserve_subcaches = set(self.cache_key_set.get_used_subcache_keys())
 
         to_remove = []
@@ -183,16 +221,35 @@ class BasicCache:
             del self.subcaches[key]
 
     def clean_unused(self):
+        """
+        清理未使用的缓存条目和子缓存。
+        """
         assert self.initialized
         self._clean_cache()
         self._clean_subcaches()
 
     def _set_immediate(self, node_id, value):
+        """
+        立即设置指定节点 ID 的缓存条目。
+
+        参数：
+        - node_id: 要设置缓存条目的节点 ID。
+        - value: 要设置的值。
+        """
         assert self.initialized
         cache_key = self.cache_key_set.get_data_key(node_id)
         self.cache[cache_key] = value
 
     def _get_immediate(self, node_id):
+        """
+        立即获取指定节点 ID 的缓存条目。
+
+        参数：
+        - node_id: 要获取缓存条目的节点 ID。
+
+        返回：
+        - 指定节点 ID 的缓存条目，如果不存在则返回 None。
+        """
         if not self.initialized:
             return None
         cache_key = self.cache_key_set.get_data_key(node_id)
@@ -202,6 +259,16 @@ class BasicCache:
             return None
 
     def _ensure_subcache(self, node_id, children_ids):
+        """
+        确保为指定节点 ID 创建子缓存，并设置子缓存的提示信息。
+
+        参数：
+        - node_id: 要确保子缓存的节点 ID。
+        - children_ids: 子节点 ID 列表。
+
+        返回：
+        - 子缓存对象。
+        """
         subcache_key = self.cache_key_set.get_subcache_key(node_id)
         subcache = self.subcaches.get(subcache_key, None)
         if subcache is None:
@@ -211,6 +278,15 @@ class BasicCache:
         return subcache
 
     def _get_subcache(self, node_id):
+        """
+        获取指定节点 ID 的子缓存。
+
+        参数：
+        - node_id: 要获取子缓存的节点 ID。
+
+        返回：
+        - 指定节点 ID 的子缓存对象，如果不存在则返回 None。
+        """
         assert self.initialized
         subcache_key = self.cache_key_set.get_subcache_key(node_id)
         if subcache_key in self.subcaches:
@@ -219,6 +295,12 @@ class BasicCache:
             return None
 
     def recursive_debug_dump(self):
+        """
+        递归地输出缓存和子缓存的内容，用于调试。
+
+        返回：
+        - 包含缓存和子缓存内容的列表。
+        """
         result = []
         for key in self.cache:
             result.append({"key": key, "value": self.cache[key]})
@@ -265,7 +347,27 @@ class HierarchicalCache(BasicCache):
         return cache._ensure_subcache(node_id, children_ids)
 
 class LRUCache(BasicCache):
+    """
+    最近最少使用（LRU）缓存类，继承自 BasicCache。
+    该类在基本缓存功能的基础上添加了 LRU 淘汰机制。
+
+    属性：
+    - key_class: 缓存键的类型。
+    - max_size: 缓存的最大容量，默认为 100。
+    - min_generation: 用于缓存淘汰的最小代数。
+    - generation: 当前代数，每次缓存操作时递增。
+    - used_generation: 记录每个缓存键最后使用的代数。
+    - children: 存储子节点关系的字典。
+    """
+
     def __init__(self, key_class, max_size=100):
+        """
+        初始化 LRUCache，设置缓存键类型和最大容量。
+
+        参数：
+        - key_class: 缓存键的类型。
+        - max_size: 缓存的最大容量。
+        """
         super().__init__(key_class)
         self.max_size = max_size
         self.min_generation = 0
@@ -274,12 +376,24 @@ class LRUCache(BasicCache):
         self.children = {}
 
     def set_prompt(self, dynprompt, node_ids, is_changed_cache):
+        """
+        设置指定节点 ID 的提示信息，并标记这些节点为最近使用。
+
+        参数：
+        - dynprompt: 动态提示对象。
+        - node_ids: 节点 ID 列表。
+        - is_changed_cache: 标记缓存是否已更改。
+        """
         super().set_prompt(dynprompt, node_ids, is_changed_cache)
         self.generation += 1
         for node_id in node_ids:
             self._mark_used(node_id)
 
     def clean_unused(self):
+        """
+        清除未使用的缓存条目以保持缓存大小在指定的最大容量内。
+        移除最旧的条目，直到缓存大小符合限制。
+        """
         while len(self.cache) > self.max_size and self.min_generation < self.generation:
             self.min_generation += 1
             to_remove = [key for key in self.cache if self.used_generation[key] < self.min_generation]
@@ -291,19 +405,49 @@ class LRUCache(BasicCache):
         self._clean_subcaches()
 
     def get(self, node_id):
+        """
+        获取指定节点 ID 的缓存条目，并标记为最近使用。
+
+        参数：
+        - node_id: 要获取缓存条目的节点 ID。
+        """
         self._mark_used(node_id)
         return self._get_immediate(node_id)
 
     def _mark_used(self, node_id):
+        """
+        标记指定节点 ID 为最近使用。
+
+        参数：
+        - node_id: 要标记为最近使用的节点 ID。
+        """
         cache_key = self.cache_key_set.get_data_key(node_id)
         if cache_key is not None:
             self.used_generation[cache_key] = self.generation
 
     def set(self, node_id, value):
+        """
+        设置指定节点 ID 的缓存条目，并标记为最近使用。
+
+        参数：
+        - node_id: 要设置缓存条目的节点 ID。
+        - value: 要设置的值。
+        """
         self._mark_used(node_id)
         return self._set_immediate(node_id, value)
 
     def ensure_subcache_for(self, node_id, children_ids):
+        """
+        确保为跟踪活跃节点设置子缓存。
+
+        参数：
+        - node_id: 要确保子缓存的节点 ID。
+        - children_ids: 子节点 ID 列表。
+
+        返回：
+        - self: 返回类的实例，支持方法链式调用。
+        """
+        # 使用子缓存来跟踪活跃节点
         # Just uses subcaches for tracking 'live' nodes
         super()._ensure_subcache(node_id, children_ids)
 

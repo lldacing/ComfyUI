@@ -2233,6 +2233,9 @@ def init_external_custom_nodes():
         if "__pycache__" in possible_modules:
             possible_modules.remove("__pycache__")
 
+        # 排下序，源仓库中没有
+        possible_modules.sort()
+
         for possible_module in possible_modules:
             module_path = os.path.join(custom_node_path, possible_module)
             if os.path.isfile(module_path) and os.path.splitext(module_path)[1] != ".py": continue
