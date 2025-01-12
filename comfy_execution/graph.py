@@ -117,8 +117,7 @@ class DynamicPrompt:
         """
         return self.original_prompt
 
-
-def get_input_info(class_def, input_name):
+def get_input_info(class_def, input_name, valid_inputs=None):
     """
     获取输入信息
 
@@ -135,7 +134,7 @@ def get_input_info(class_def, input_name):
     - extra_info: 其他额外信息，通常是一个字典
     """
     # 获取类的输入类型定义
-    valid_inputs = class_def.INPUT_TYPES()
+    valid_inputs = valid_inputs or class_def.INPUT_TYPES()
     # 初始化输入信息和类别
     input_info = None
     input_category = None

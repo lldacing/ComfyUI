@@ -321,7 +321,7 @@ class FeatherMask:
             output[:, -y, :] *= feather_rate
 
         return (output,)
-    
+
 class GrowMask:
     @classmethod
     def INPUT_TYPES(cls):
@@ -332,7 +332,7 @@ class GrowMask:
                 "tapered_corners": ("BOOLEAN", {"default": True}),
             },
         }
-    
+
     CATEGORY = "mask"
 
     RETURN_TYPES = ("MASK",)
