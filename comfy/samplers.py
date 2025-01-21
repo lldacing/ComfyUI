@@ -12,7 +12,6 @@ import collections
 from comfy import model_management
 import math
 import logging
-import comfy.samplers
 import comfy.sampler_helpers
 import comfy.model_patcher
 import comfy.patcher_extension
@@ -178,7 +177,7 @@ def finalize_default_conds(model: 'BaseModel', hooked_to_run: dict[comfy.hooks.H
         cond = default_conds[i]
         for x in cond:
             # do get_area_and_mult to get all the expected values
-            p = comfy.samplers.get_area_and_mult(x, x_in, timestep)
+            p = get_area_and_mult(x, x_in, timestep)
             if p is None:
                 continue
             # replace p's mult with calculated mult
@@ -216,7 +215,7 @@ def _calc_cond_batch(model: 'BaseModel', conds: list[list[dict]], x_in: torch.Te
                     has_default_conds = True
                     continue
                 # 遮罩、条件等信息
-                p = comfy.samplers.get_area_and_mult(x, x_in, timestep)
+                p = get_area_and_mult(x, x_in, timestep)
                 if p is None:
                     continue
                 if p.hooks is not None:
@@ -415,7 +414,7 @@ class KSamplerX0Inpaint:
             # 计算需要进行修复的图像部分的掩码
             latent_mask = 1. - denoise_mask
             # 根据噪声标准差和掩码对图像进行修复和降噪
-            x = x * denoise_mask + self.inner_model.inner_model.model_sampling.noise_scaling(sigma.reshape([sigma.shape[0]] + [1] * (len(self.noise.shape) - 1)), self.noise, self.latent_image) * latent_mask
+            x = x * denoise_mask + self.inner_model.inner_model.scale_latent_inpaint(x=x, sigma=sigma, noise=self.noise, latent_image=self.latent_image) * latent_mask
         # 使用内部模型(CFGGuider)对图像进行进一步处理
         out = self.inner_model(x, sigma, model_options=model_options, seed=seed)
         # 如果提供了降噪掩码，则将修复后的图像与原始图像相结合
@@ -786,7 +785,7 @@ class Sampler:
 KSAMPLER_NAMES = ["euler", "euler_cfg_pp", "euler_ancestral", "euler_ancestral_cfg_pp", "heun", "heunpp2","dpm_2", "dpm_2_ancestral",
                   "lms", "dpm_fast", "dpm_adaptive", "dpmpp_2s_ancestral", "dpmpp_2s_ancestral_cfg_pp", "dpmpp_sde", "dpmpp_sde_gpu",
                   "dpmpp_2m", "dpmpp_2m_cfg_pp", "dpmpp_2m_sde", "dpmpp_2m_sde_gpu", "dpmpp_3m_sde", "dpmpp_3m_sde_gpu", "ddpm", "lcm",
-                  "ipndm", "ipndm_v", "deis"]
+                  "ipndm", "ipndm_v", "deis", "res_multistep", "res_multistep_cfg_pp"]
 
 class KSAMPLER(Sampler):
     """
