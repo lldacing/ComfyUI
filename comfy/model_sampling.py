@@ -44,6 +44,7 @@ class EPS:
         Tensor: 缩放后的噪声张量，已与潜在图像相加。
         """
         # 根据是否最大化去噪来调整噪声的缩放因子
+        sigma = sigma.view(sigma.shape[:1] + (1,) * (noise.ndim - 1))
         if max_denoise:
             noise = noise * torch.sqrt(1.0 + sigma ** 2.0)
         else:
@@ -52,7 +53,6 @@ class EPS:
         # 将缩放后的噪声与潜在图像相加，得到最终的输出
         noise += latent_image
         return noise
-
 
     def inverse_noise_scaling(self, sigma, latent):
         return latent
@@ -120,6 +120,7 @@ class CONST:
         返回:
         Tensor: 根据噪声水平加权混合后的图像。
         """
+        sigma = sigma.view(sigma.shape[:1] + (1,) * (noise.ndim - 1))
         return sigma * noise + (1.0 - sigma) * latent_image
 
     def inverse_noise_scaling(self, sigma, latent):
@@ -133,8 +134,8 @@ class CONST:
         返回:
         Tensor: 调整后的潜在图像。
         """
+        sigma = sigma.view(sigma.shape[:1] + (1,) * (latent.ndim - 1))
         return latent / (1.0 - sigma)
-
 
 class ModelSamplingDiscrete(torch.nn.Module):
     def __init__(self, model_config=None, zsnr=None):

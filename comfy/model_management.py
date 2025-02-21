@@ -50,7 +50,9 @@ xpu_available = False
 torch_version = ""
 try:
     torch_version = torch.version.__version__
-    xpu_available = (int(torch_version[0]) < 2 or (int(torch_version[0]) == 2 and int(torch_version[2]) <= 4)) and torch.xpu.is_available()
+    temp = torch_version.split(".")
+    torch_version_numeric = (int(temp[0]), int(temp[1]))
+    xpu_available = (torch_version_numeric[0] < 2 or (torch_version_numeric[0] == 2 and torch_version_numeric[1] <= 4)) and torch.xpu.is_available()
 except:
     pass
 
@@ -218,7 +220,7 @@ def is_amd():
 
 MIN_WEIGHT_MEMORY_RATIO = 0.4
 if is_nvidia():
-    MIN_WEIGHT_MEMORY_RATIO = 0.2
+    MIN_WEIGHT_MEMORY_RATIO = 0.1
 
 ENABLE_PYTORCH_ATTENTION = False
 if args.use_pytorch_cross_attention:
@@ -227,7 +229,7 @@ if args.use_pytorch_cross_attention:
 
 try:
     if is_nvidia():
-        if int(torch_version[0]) >= 2:
+        if torch_version_numeric[0] >= 2:
             if ENABLE_PYTORCH_ATTENTION == False and args.use_split_cross_attention == False and args.use_quad_cross_attention == False:
                 ENABLE_PYTORCH_ATTENTION = True
     if is_intel_xpu() or is_ascend_npu():
@@ -236,13 +238,32 @@ try:
 except:
     pass
 
+
+try:
+    if is_amd():
+        arch = torch.cuda.get_device_properties(get_torch_device()).gcnArchName
+        logging.info("AMD arch: {}".format(arch))
+        if args.use_split_cross_attention == False and args.use_quad_cross_attention == False:
+            if torch_version_numeric[0] >= 2 and torch_version_numeric[1] >= 7:  # works on 2.6 but doesn't actually seem to improve much
+                if any((a in arch) for a in ["gfx1100", "gfx1101"]):  # TODO: more arches
+                    ENABLE_PYTORCH_ATTENTION = True
+except:
+    pass
+
+
 if ENABLE_PYTORCH_ATTENTION:
     torch.backends.cuda.enable_math_sdp(True)
     torch.backends.cuda.enable_flash_sdp(True)
     torch.backends.cuda.enable_mem_efficient_sdp(True)
 
 try:
-    if int(torch_version[0]) == 2 and int(torch_version[2]) >= 5:
+    if is_nvidia() and args.fast:
+        torch.backends.cuda.matmul.allow_fp16_accumulation = True
+except:
+    pass
+
+try:
+    if torch_version_numeric[0] == 2 and torch_version_numeric[1] >= 5:
         torch.backends.cuda.allow_fp16_bf16_reduction_math_sdp(True)
 except:
     logging.warning("Warning, could not set allow_fp16_bf16_reduction_math_sdp")
@@ -256,14 +277,9 @@ elif args.highvram or args.gpu_only:
     vram_state = VRAMState.HIGH_VRAM
 
 FORCE_FP32 = False
-FORCE_FP16 = False
 if args.force_fp32:
     logging.info("Forcing FP32, if this improves things please report it.")
     FORCE_FP32 = True
-
-if args.force_fp16:
-    logging.info("Forcing FP16.")
-    FORCE_FP16 = True
 
 if lowvram_available:
     if set_vram_to in (VRAMState.LOW_VRAM, VRAMState.NO_VRAM):
@@ -559,14 +575,11 @@ def load_models_gpu(models, memory_required=0, force_patch_weights=False, minimu
             vram_set_state = vram_state
         lowvram_model_memory = 0
         if lowvram_available and (vram_set_state == VRAMState.LOW_VRAM or vram_set_state == VRAMState.NORMAL_VRAM) and not force_full_load:
-            model_size = loaded_model.model_memory_required(torch_dev)
             loaded_memory = loaded_model.model_loaded_memory()
             current_free_mem = get_free_memory(torch_dev) + loaded_memory
 
             lowvram_model_memory = max(64 * 1024 * 1024, (current_free_mem - minimum_memory_required), min(current_free_mem * MIN_WEIGHT_MEMORY_RATIO, current_free_mem - minimum_inference_memory()))
             lowvram_model_memory = max(0.1, lowvram_model_memory - loaded_memory)
-            if model_size <= lowvram_model_memory: #only switch to lowvram if really necessary
-                lowvram_model_memory = 0
 
         if vram_set_state == VRAMState.NO_VRAM:
             lowvram_model_memory = 0.1
@@ -944,6 +957,11 @@ def pytorch_attention_enabled():
     global ENABLE_PYTORCH_ATTENTION
     return ENABLE_PYTORCH_ATTENTION
 
+def pytorch_attention_enabled_vae():
+    if is_amd():
+        return False  # enabling pytorch attention on AMD currently causes crash when doing high res
+    return pytorch_attention_enabled()
+
 def pytorch_attention_flash_attention():
     global ENABLE_PYTORCH_ATTENTION
     if ENABLE_PYTORCH_ATTENTION:
@@ -954,6 +972,8 @@ def pytorch_attention_flash_attention():
             return True
         if is_ascend_npu():
             return True
+        if is_amd():
+            return True #if you have pytorch attention enabled on AMD it probably supports at least mem efficient attention
     return False
 
 def mac_version():
@@ -1046,21 +1066,26 @@ def is_device_mps(device):
 def is_device_cuda(device):
     return is_device_type(device, 'cuda')
 
-def should_use_fp16(device=None, model_params=0, prioritize_performance=True, manual_cast=False):
+def is_directml_enabled():
     global directml_enabled
+    if directml_enabled:
+        return True
 
+    return False
+
+def should_use_fp16(device=None, model_params=0, prioritize_performance=True, manual_cast=False):
     if device is not None:
         if is_device_cpu(device):
             return False
 
-    if FORCE_FP16:
+    if args.force_fp16:
         return True
 
     if FORCE_FP32:
         return False
 
-    if directml_enabled:
-        return False
+    if is_directml_enabled():
+        return True
 
     if (device is not None and is_device_mps(device)) or mps_mode():
         return True
@@ -1131,13 +1156,23 @@ def should_use_bf16(device=None, model_params=0, prioritize_performance=True, ma
     if is_intel_xpu():
         return True
 
+    if is_ascend_npu():
+        return True
+
+    if is_amd():
+        arch = torch.cuda.get_device_properties(device).gcnArchName
+        if any((a in arch) for a in ["gfx1030", "gfx1031", "gfx1010", "gfx1011", "gfx1012", "gfx906", "gfx900", "gfx803"]):  # RDNA2 and older don't support bf16
+            if manual_cast:
+                return True
+            return False
+
     props = torch.cuda.get_device_properties(device)
     if props.major >= 8:
         return True
 
     bf16_works = torch.cuda.is_bf16_supported()
 
-    if bf16_works or manual_cast:
+    if bf16_works and manual_cast:
         free_model_memory = maximum_vram_for_weights(device)
         if (not prioritize_performance) or model_params * 4 > free_model_memory:
             return True
@@ -1156,11 +1191,11 @@ def supports_fp8_compute(device=None):
     if props.minor < 9:
         return False
 
-    if int(torch_version[0]) < 2 or (int(torch_version[0]) == 2 and int(torch_version[2]) < 3):
+    if torch_version_numeric[0] < 2 or (torch_version_numeric[0] == 2 and torch_version_numeric[1] < 3):
         return False
 
     if WINDOWS:
-        if (int(torch_version[0]) == 2 and int(torch_version[2]) < 4):
+        if (torch_version_numeric[0] == 2 and torch_version_numeric[1] < 4):
             return False
 
     return True

@@ -297,7 +297,7 @@ def vae_attention():
     if model_management.xformers_enabled_vae():
         logging.info("Using xformers attention in VAE")
         return xformers_attention
-    elif model_management.pytorch_attention_enabled():
+    elif model_management.pytorch_attention_enabled_vae():
         logging.info("Using pytorch attention in VAE")
         return pytorch_attention
     else:
@@ -702,9 +702,6 @@ class Decoder(nn.Module):
                                         padding=1)
 
     def forward(self, z, **kwargs):
-        #assert z.shape[1:] == self.z_shape[1:]
-        self.last_z_shape = z.shape
-
         # timestep embedding
         temb = None
 
