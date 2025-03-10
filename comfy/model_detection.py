@@ -1,3 +1,4 @@
+import json
 import comfy.supported_models
 import comfy.supported_models_base
 import comfy.utils
@@ -59,7 +60,7 @@ def calculate_transformer_depth(prefix, state_dict_keys, state_dict):
     # 如果不存在Transformer块，返回None
     return None
 
-def detect_unet_config(state_dict, key_prefix):
+def detect_unet_config(state_dict, key_prefix, metadata=None):
     # 将状态字典的键转换为列表以便后续操作
     state_dict_keys = list(state_dict.keys())
 
@@ -277,6 +278,8 @@ def detect_unet_config(state_dict, key_prefix):
     if '{}adaln_single.emb.timestep_embedder.linear_1.bias'.format(key_prefix) in state_dict_keys: #Lightricks ltxv
         dit_config = {}
         dit_config["image_model"] = "ltxv"
+        if metadata is not None and "config" in metadata:
+            dit_config.update(json.loads(metadata["config"]).get("transformer", {}))
         return dit_config
 
     if '{}t_block.1.weight'.format(key_prefix) in state_dict_keys: # PixArt
@@ -555,9 +558,9 @@ def model_config_from_unet_config(unet_config, state_dict=None):
     logging.error("no match {}".format(unet_config))
     return None
 
-def model_config_from_unet(state_dict, unet_key_prefix, use_base_if_no_match=False):
+def model_config_from_unet(state_dict, unet_key_prefix, use_base_if_no_match=False, metadata=None):
     # 从给定的状态字典和UNet键前缀中检测UNet配置
-    unet_config = detect_unet_config(state_dict, unet_key_prefix)
+    unet_config = detect_unet_config(state_dict, unet_key_prefix, metadata=metadata)
     # 如果未检测到UNet配置，则返回None
     if unet_config is None:
         return None
@@ -576,6 +579,10 @@ def model_config_from_unet(state_dict, unet_key_prefix, use_base_if_no_match=Fal
         # 如果scaled_fp8权重的数据类型为float32，则将其改为float8_e4m3fn
         if model_config.scaled_fp8 == torch.float32:
             model_config.scaled_fp8 = torch.float8_e4m3fn
+        if scaled_fp8_weight.nelement() == 2:
+            model_config.optimizations["fp8"] = False
+        else:
+            model_config.optimizations["fp8"] = True
 
     # 返回生成或更新的模型配置
     return model_config
