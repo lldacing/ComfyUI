@@ -46,6 +46,32 @@ cpu_state = CPUState.GPU
 
 total_vram = 0
 
+def get_supported_float8_types():
+    float8_types = []
+    try:
+        float8_types.append(torch.float8_e4m3fn)
+    except:
+        pass
+    try:
+        float8_types.append(torch.float8_e4m3fnuz)
+    except:
+        pass
+    try:
+        float8_types.append(torch.float8_e5m2)
+    except:
+        pass
+    try:
+        float8_types.append(torch.float8_e5m2fnuz)
+    except:
+        pass
+    try:
+        float8_types.append(torch.float8_e8m0fnu)
+    except:
+        pass
+    return float8_types
+
+FLOAT8_TYPES = get_supported_float8_types()
+
 xpu_available = False
 torch_version = ""
 try:
@@ -186,12 +212,21 @@ def get_total_memory(dev=None, torch_total_too=False):
     else:
         return mem_total
 
+def mac_version():
+    try:
+        return tuple(int(n) for n in platform.mac_ver()[0].split("."))
+    except:
+        return None
+
 total_vram = get_total_memory(get_torch_device()) / (1024 * 1024)
 total_ram = psutil.virtual_memory().total / (1024 * 1024)
 logging.info("Total VRAM {:0.0f} MB, total RAM {:0.0f} MB".format(total_vram, total_ram))
 
 try:
     logging.info("pytorch version: {}".format(torch_version))
+    mac_ver = mac_version()
+    if mac_ver is not None:
+        logging.info("Mac Version {}".format(mac_ver))
 except:
     pass
 
@@ -726,11 +761,8 @@ def unet_dtype(device=None, model_params=0, supported_dtypes=[torch.float16, tor
         return torch.float8_e5m2
 
     fp8_dtype = None
-    try:
-        if weight_dtype in [torch.float8_e4m3fn, torch.float8_e5m2]:
-            fp8_dtype = weight_dtype
-    except:
-        pass
+    if weight_dtype in FLOAT8_TYPES:
+        fp8_dtype = weight_dtype
 
     # 如果指定了 fp8_dtype 并且设备支持 fp8 计算，
     # 则转换为 fp8 的成本可能不高，直接返回 fp8_dtype。
@@ -964,6 +996,9 @@ def cast_to_device(tensor, device, dtype, copy=False):
 def sage_attention_enabled():
     return args.use_sage_attention
 
+def flash_attention_enabled():
+    return args.use_flash_attention
+
 def xformers_enabled():
     global directml_enabled
     global cpu_state
@@ -1011,12 +1046,6 @@ def pytorch_attention_flash_attention():
         if is_amd():
             return True #if you have pytorch attention enabled on AMD it probably supports at least mem efficient attention
     return False
-
-def mac_version():
-    try:
-        return tuple(int(n) for n in platform.mac_ver()[0].split("."))
-    except:
-        return None
 
 def force_upcast_attention_dtype():
     upcast = args.force_upcast_attention
