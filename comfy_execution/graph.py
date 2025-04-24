@@ -175,7 +175,13 @@ class TopologicalSort:
         self.pendingNodes = {}
         # 节点被直接阻塞的数量
         self.blockCount = {} # Number of nodes this node is directly blocked by
-        # 阻塞其他节点的列表
+        # 阻塞其他节点的列表 [from_node_Id][to_node_id][from_node_output_index]
+        # {
+        # ‘50’: {'50': {}},
+        # ‘46’: {'50': {0:True}},
+        # '48': {'46': {0:True}},
+        # '49': {'48': {0:True}}
+        # }
         self.blocking = {} # Which nodes are blocked by this node
 
     # 获取特定输入的节点信息
@@ -279,7 +285,7 @@ class TopologicalSort:
         # 从待处理节点字典中移除已经处理完毕的节点
         del self.pendingNodes[unique_id]
 
-        # 遍历该节点所阻塞的所有节点，并减少它们的阻塞计数
+        # 遍历该节点所阻塞的所有节点，并减少它们的阻塞计数，更新该节点的前置节点个数
         for blocked_node_id in self.blocking[unique_id]:
             self.blockCount[blocked_node_id] -= 1
 
