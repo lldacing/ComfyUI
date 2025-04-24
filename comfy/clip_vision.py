@@ -18,6 +18,7 @@ class Output:
         setattr(self, key, item)
 
 def clip_preprocess(image, size=224, mean=[0.48145466, 0.4578275, 0.40821073], std=[0.26862954, 0.26130258, 0.27577711], crop=True):
+    image = image[:, :, :, :3] if image.shape[3] > 3 else image
     mean = torch.tensor(mean, device=image.device, dtype=image.dtype)
     std = torch.tensor(std, device=image.device, dtype=image.dtype)
     image = image.movedim(-1, 1)
@@ -110,9 +111,13 @@ def load_clipvision_from_sd(sd, prefix="", convert_keys=False):
     elif "vision_model.encoder.layers.30.layer_norm1.weight" in sd:
         json_config = os.path.join(os.path.dirname(os.path.realpath(__file__)), "clip_vision_config_h.json")
     elif "vision_model.encoder.layers.22.layer_norm1.weight" in sd:
+        embed_shape = sd["vision_model.embeddings.position_embedding.weight"].shape[0]
         if sd["vision_model.encoder.layers.0.layer_norm1.weight"].shape[0] == 1152:
-            json_config = os.path.join(os.path.dirname(os.path.realpath(__file__)), "clip_vision_siglip_384.json")
-        elif sd["vision_model.embeddings.position_embedding.weight"].shape[0] == 577:
+            if embed_shape == 729:
+                json_config = os.path.join(os.path.dirname(os.path.realpath(__file__)), "clip_vision_siglip_384.json")
+            elif embed_shape == 1024:
+                json_config = os.path.join(os.path.dirname(os.path.realpath(__file__)), "clip_vision_siglip_512.json")
+        elif embed_shape == 577:
             if "multi_modal_projector.linear_1.bias" in sd:
                 json_config = os.path.join(os.path.dirname(os.path.realpath(__file__)), "clip_vision_config_vitl_336_llava.json")
             else:

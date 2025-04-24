@@ -1,6 +1,9 @@
-import nodes
+from __future__ import annotations
+from typing import Type, Literal
 
+import nodes
 from comfy_execution.graph_utils import is_link
+from comfy.comfy_types.node_typing import ComfyNodeABC, InputTypeDict, InputTypeOptions
 
 class DependencyCycleError(Exception):
     pass
@@ -117,24 +120,22 @@ class DynamicPrompt:
         """
         return self.original_prompt
 
+def get_input_info(
+    class_def: Type[ComfyNodeABC],
+    input_name: str,
+    valid_inputs: InputTypeDict | None = None
+) -> tuple[str, Literal["required", "optional", "hidden"], InputTypeOptions] | tuple[None, None, None]:
+    """Get the input type, category, and extra info for a given input name.
 
-def get_input_info(class_def, input_name, valid_inputs=None):
+    Arguments:
+        class_def: The class definition of the node.
+        input_name: The name of the input to get info for.
+        valid_inputs: The valid inputs for the node, or None to use the class_def.INPUT_TYPES().
+
+    Returns:
+        tuple[str, str, dict] | tuple[None, None, None]: The input type, category, and extra info for the input name.
     """
-    获取输入信息
 
-    该函数根据类定义和输入名称，返回指定输入的类型、类别以及其他信息
-    主要用于解析类的输入要求，以确定输入在该类中的角色和属性
-
-    参数:
-    - class_def: 类的定义，用于查询输入类型
-    - input_name: 需要查询的输入名称
-
-    返回:
-    - input_type: 输入的类型
-    - input_category: 输入的类别（如"required", "optional", "hidden"）
-    - extra_info: 其他额外信息，通常是一个字典
-    """
-    # 获取类的输入类型定义
     valid_inputs = valid_inputs or class_def.INPUT_TYPES()
     # 初始化输入信息和类别
     input_info = None
@@ -259,7 +260,7 @@ class TopologicalSort:
                     if subgraph_nodes is not None and from_node_id not in subgraph_nodes:
                         continue
                     # 获取当前节点输入的类型、分类和附加信息
-                    input_type, input_category, input_info = self.get_input_info(unique_id, input_name)
+                    _, _, input_info = self.get_input_info(unique_id, input_name)
                     # 判断当前输入是否为延迟执行类型
                     is_lazy = input_info is not None and "lazy" in input_info and input_info["lazy"]
                     # 根据是否包含延迟执行来决定是否添加强链接
