@@ -297,11 +297,16 @@ except:
 
 try:
     if is_amd():
+        try:
+            rocm_version = tuple(map(int, str(torch.version.hip).split(".")[:2]))
+        except:
+            rocm_version = (6, -1)
         arch = torch.cuda.get_device_properties(get_torch_device()).gcnArchName
         logging.info("AMD arch: {}".format(arch))
+        logging.info("ROCm version: {}".format(rocm_version))
         if args.use_split_cross_attention == False and args.use_quad_cross_attention == False:
             if torch_version_numeric[0] >= 2 and torch_version_numeric[1] >= 7:  # works on 2.6 but doesn't actually seem to improve much
-                if any((a in arch) for a in ["gfx1100", "gfx1101"]):  # TODO: more arches
+                if any((a in arch) for a in ["gfx1100", "gfx1101", "gfx1151"]):  # TODO: more arches
                     ENABLE_PYTORCH_ATTENTION = True
 except:
     pass
@@ -721,9 +726,8 @@ def unet_inital_load_device(parameters, dtype):
 
     # 定义CPU设备
     cpu_dev = torch.device("cpu")
-
     # 如果禁用了智能内存管理，则直接返回CPU设备
-    if DISABLE_SMART_MEMORY:
+    if DISABLE_SMART_MEMORY or vram_state == VRAMState.NO_VRAM:
         return cpu_dev
 
     # 计算模型大小，以便后续决定使用哪个设备
@@ -982,15 +986,61 @@ def force_channels_last():
     #TODO
     return False
 
-def cast_to(weight, dtype=None, device=None, non_blocking=False, copy=False):
+
+STREAMS = {}
+NUM_STREAMS = 1
+if args.async_offload:
+    NUM_STREAMS = 2
+    logging.info("Using async weight offloading with {} streams".format(NUM_STREAMS))
+
+stream_counters = {}
+def get_offload_stream(device):
+    stream_counter = stream_counters.get(device, 0)
+    if NUM_STREAMS <= 1:
+        return None
+
+    if device in STREAMS:
+        ss = STREAMS[device]
+        s = ss[stream_counter]
+        stream_counter = (stream_counter + 1) % len(ss)
+        if is_device_cuda(device):
+            ss[stream_counter].wait_stream(torch.cuda.current_stream())
+        stream_counters[device] = stream_counter
+        return s
+    elif is_device_cuda(device):
+        ss = []
+        for k in range(NUM_STREAMS):
+            ss.append(torch.cuda.Stream(device=device, priority=0))
+        STREAMS[device] = ss
+        s = ss[stream_counter]
+        stream_counter = (stream_counter + 1) % len(ss)
+        stream_counters[device] = stream_counter
+        return s
+    return None
+
+def sync_stream(device, stream):
+    if stream is None:
+        return
+    if is_device_cuda(device):
+        torch.cuda.current_stream().wait_stream(stream)
+
+def cast_to(weight, dtype=None, device=None, non_blocking=False, copy=False, stream=None):
     if device is None or weight.device == device:
         if not copy:
             if dtype is None or weight.dtype == dtype:
                 return weight
+        if stream is not None:
+            with stream:
+                return weight.to(dtype=dtype, copy=copy)
         return weight.to(dtype=dtype, copy=copy)
 
-    r = torch.empty_like(weight, dtype=dtype, device=device)
-    r.copy_(weight, non_blocking=non_blocking)
+    if stream is not None:
+        with stream:
+            r = torch.empty_like(weight, dtype=dtype, device=device)
+            r.copy_(weight, non_blocking=non_blocking)
+    else:
+        r = torch.empty_like(weight, dtype=dtype, device=device)
+        r.copy_(weight, non_blocking=non_blocking)
     return r
 
 def cast_to_device(tensor, device, dtype, copy=False):
@@ -1264,6 +1314,9 @@ def should_use_bf16(device=None, model_params=0, prioritize_performance=True, ma
     return False
 
 def supports_fp8_compute(device=None):
+    if args.supports_fp8_compute:
+        return True
+
     if not is_nvidia():
         return False
 
