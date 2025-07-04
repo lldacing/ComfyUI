@@ -167,8 +167,8 @@ class ImageColorToMask:
         temp = (torch.clamp(image, 0, 1.0) * 255.0).round().to(torch.int)
         # 将图像张量中的每个像素的颜色值分解为三个通道（红、绿、蓝），然后分别左移 16 位、8 位和 0 位，再相加，得到一个 24 位的整数值。这样，每个像素的颜色值就可以用一个 24 位的整数表示
         temp = torch.bitwise_left_shift(temp[:,:,:,0], 16) + torch.bitwise_left_shift(temp[:,:,:,1], 8) + temp[:,:,:,2]
-        # 将图像张量中的每个像素的颜色值与给定的颜色值进行比较，如果相等，就返回 255，否则返回 0，最后转换为浮点类型。这样，就得到了一个只包含 0 和 255 的张量，表示图像中的哪些像素与给定的颜色相同
-        mask = torch.where(temp == color, 255, 0).float()
+        # 将图像张量中的每个像素的颜色值与给定的颜色值进行比较，如果相等，就返回 1.0，否则返回 0，最后转换为浮点类型。这样，就得到了一个只包含 0 和 1.0 的张量，表示图像中的哪些像素与给定的颜色相同
+        mask = torch.where(temp == color, 1.0, 0).float()
         return (mask,)
 
 class SolidMask:

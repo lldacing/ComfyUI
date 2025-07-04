@@ -474,6 +474,78 @@ def detect_unet_config(state_dict, key_prefix, metadata=None):
         dit_config["text_emb_dim"] = 2048
         return dit_config
 
+    if '{}blocks.0.mlp.layer1.weight'.format(key_prefix) in state_dict_keys:  # Cosmos predict2
+        dit_config = {}
+        dit_config["image_model"] = "cosmos_predict2"
+        dit_config["max_img_h"] = 240
+        dit_config["max_img_w"] = 240
+        dit_config["max_frames"] = 128
+        concat_padding_mask = True
+        dit_config["in_channels"] = (state_dict['{}x_embedder.proj.1.weight'.format(key_prefix)].shape[1] // 4) - int(concat_padding_mask)
+        dit_config["out_channels"] = 16
+        dit_config["patch_spatial"] = 2
+        dit_config["patch_temporal"] = 1
+        dit_config["model_channels"] = state_dict['{}x_embedder.proj.1.weight'.format(key_prefix)].shape[0]
+        dit_config["concat_padding_mask"] = concat_padding_mask
+        dit_config["crossattn_emb_channels"] = 1024
+        dit_config["pos_emb_cls"] = "rope3d"
+        dit_config["pos_emb_learnable"] = True
+        dit_config["pos_emb_interpolation"] = "crop"
+        dit_config["min_fps"] = 1
+        dit_config["max_fps"] = 30
+
+        dit_config["use_adaln_lora"] = True
+        dit_config["adaln_lora_dim"] = 256
+        if dit_config["model_channels"] == 2048:
+            dit_config["num_blocks"] = 28
+            dit_config["num_heads"] = 16
+        elif dit_config["model_channels"] == 5120:
+            dit_config["num_blocks"] = 36
+            dit_config["num_heads"] = 40
+
+        if dit_config["in_channels"] == 16:
+            dit_config["extra_per_block_abs_pos_emb"] = False
+            dit_config["rope_h_extrapolation_ratio"] = 4.0
+            dit_config["rope_w_extrapolation_ratio"] = 4.0
+            dit_config["rope_t_extrapolation_ratio"] = 1.0
+        elif dit_config["in_channels"] == 17: # img to video
+            if dit_config["model_channels"] == 2048:
+                dit_config["extra_per_block_abs_pos_emb"] = False
+                dit_config["rope_h_extrapolation_ratio"] = 3.0
+                dit_config["rope_w_extrapolation_ratio"] = 3.0
+                dit_config["rope_t_extrapolation_ratio"] = 1.0
+            elif dit_config["model_channels"] == 5120:
+                dit_config["rope_h_extrapolation_ratio"] = 2.0
+                dit_config["rope_w_extrapolation_ratio"] = 2.0
+                dit_config["rope_t_extrapolation_ratio"] = 0.8333333333333334
+
+        dit_config["extra_h_extrapolation_ratio"] = 1.0
+        dit_config["extra_w_extrapolation_ratio"] = 1.0
+        dit_config["extra_t_extrapolation_ratio"] = 1.0
+        dit_config["rope_enable_fps_modulation"] = False
+
+        return dit_config
+
+    if '{}time_caption_embed.timestep_embedder.linear_1.bias'.format(key_prefix) in state_dict_keys:  # Omnigen2
+        dit_config = {}
+        dit_config["image_model"] = "omnigen2"
+        dit_config["axes_dim_rope"] = [40, 40, 40]
+        dit_config["axes_lens"] = [1024, 1664, 1664]
+        dit_config["ffn_dim_multiplier"] = None
+        dit_config["hidden_size"] = 2520
+        dit_config["in_channels"] = 16
+        dit_config["multiple_of"] = 256
+        dit_config["norm_eps"] = 1e-05
+        dit_config["num_attention_heads"] = 21
+        dit_config["num_kv_heads"] = 7
+        dit_config["num_layers"] = 32
+        dit_config["num_refiner_layers"] = 2
+        dit_config["out_channels"] = None
+        dit_config["patch_size"] = 2
+        dit_config["text_feat_dim"] = 2048
+        dit_config["timestep_scale"] = 1000.0
+        return dit_config
+
     # 如果特定键不存在于state_dict_keys中，则返回None
     if '{}input_blocks.0.0.weight'.format(key_prefix) not in state_dict_keys:
         return None

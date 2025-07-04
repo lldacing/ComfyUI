@@ -44,6 +44,7 @@ import comfy.text_encoders.lumina2
 import comfy.text_encoders.wan
 import comfy.text_encoders.hidream
 import comfy.text_encoders.ace
+import comfy.text_encoders.omnigen2
 
 import comfy.model_patcher
 import comfy.lora
@@ -764,6 +765,7 @@ class CLIPType(Enum):
     HIDREAM = 14
     CHROMA = 15
     ACE = 16
+    OMNIGEN2 = 17
 
 
 def load_clip(ckpt_paths, embedding_directory=None, clip_type=CLIPType.STABLE_DIFFUSION, model_options={}):
@@ -783,6 +785,7 @@ class TEModel(Enum):
     LLAMA3_8 = 7
     T5_XXL_OLD = 8
     GEMMA_2_2B = 9
+    QWEN25_3B = 10
 
 def detect_te_model(sd):
     # 检查模型权重以确定模型类型
@@ -810,6 +813,8 @@ def detect_te_model(sd):
         return TEModel.T5_BASE
     if 'model.layers.0.post_feedforward_layernorm.weight' in sd:
         return TEModel.GEMMA_2_2B
+    if 'model.layers.0.self_attn.k_proj.bias' in sd:
+        return TEModel.QWEN25_3B
     if "model.layers.0.post_attention_layernorm.weight" in sd:
         return TEModel.LLAMA3_8
     # 如果没有匹配到任何特定模型的权重，则返回None
@@ -912,6 +917,9 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
             clip_target.clip = comfy.text_encoders.hidream.hidream_clip(**llama_detect(clip_data),
                                                                         clip_l=False, clip_g=False, t5=False, llama=True, dtype_t5=None, t5xxl_scaled_fp8=None)
             clip_target.tokenizer = comfy.text_encoders.hidream.HiDreamTokenizer
+        elif te_model == TEModel.QWEN25_3B:
+            clip_target.clip = comfy.text_encoders.omnigen2.te(**llama_detect(clip_data))
+            clip_target.tokenizer = comfy.text_encoders.omnigen2.Omnigen2Tokenizer
         else:
             # clip_l
             if clip_type == CLIPType.SD3:
@@ -1129,8 +1137,28 @@ def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_c
     return (model_patcher, clip, vae, clipvision)
 
 
+def load_diffusion_model_state_dict(sd, model_options={}):
+    """
+    Loads a UNet diffusion model from a state dictionary, supporting both diffusers and regular formats.
 
-def load_diffusion_model_state_dict(sd, model_options={}): #load unet in diffusers or regular format
+    Args:
+        sd (dict): State dictionary containing model weights and configuration
+        model_options (dict, optional): Additional options for model loading. Supports:
+            - dtype: Override model data type
+            - custom_operations: Custom model operations
+            - fp8_optimizations: Enable FP8 optimizations
+
+    Returns:
+        ModelPatcher: A wrapped model instance that handles device management and weight loading.
+        Returns None if the model configuration cannot be detected.
+
+    The function:
+    1. Detects and handles different model formats (regular, diffusers, mmdit)
+    2. Configures model dtype based on parameters and device capabilities
+    3. Handles weight conversion and device placement
+    4. Manages model optimization settings
+    5. Loads weights and returns a device-managed model instance
+    """
     dtype = model_options.get("dtype", None)
 
     #Allow loading unets from checkpoint files
@@ -1188,7 +1216,7 @@ def load_diffusion_model_state_dict(sd, model_options={}): #load unet in diffuse
     model.load_model_weights(new_sd, "")
     left_over = sd.keys()
     if len(left_over) > 0:
-        logging.info("left over keys in unet: {}".format(left_over))
+        logging.info("left over keys in diffusion model: {}".format(left_over))
     return comfy.model_patcher.ModelPatcher(model, load_device=load_device, offload_device=offload_device)
 
 
@@ -1196,7 +1224,7 @@ def load_diffusion_model(unet_path, model_options={}):
     sd = comfy.utils.load_torch_file(unet_path)
     model = load_diffusion_model_state_dict(sd, model_options=model_options)
     if model is None:
-        logging.error("ERROR UNSUPPORTED UNET {}".format(unet_path))
+        logging.error("ERROR UNSUPPORTED DIFFUSION MODEL {}".format(unet_path))
         raise RuntimeError("ERROR: Could not detect model type of: {}".format(unet_path))
     return model
 
