@@ -42,6 +42,7 @@ import comfy.ldm.hidream.model
 import comfy.ldm.chroma.model
 import comfy.ldm.ace.model
 import comfy.ldm.omnigen.omnigen2
+import comfy.ldm.qwen_image.model
 
 import comfy.model_management
 import comfy.patcher_extension
@@ -107,10 +108,12 @@ def model_sampling(model_config, model_type):
     return ModelSampling(model_config)
 
 
-def convert_tensor(extra, dtype):
+def convert_tensor(extra, dtype, device):
     if hasattr(extra, "dtype"):
         if extra.dtype != torch.int and extra.dtype != torch.long:
-            extra = extra.to(dtype)
+            extra = comfy.model_management.cast_to_device(extra, device, dtype)
+        else:
+            extra = comfy.model_management.cast_to_device(extra, device, None)
     return extra
 
 
@@ -165,7 +168,7 @@ class BaseModel(torch.nn.Module):
 
         # 如果 c_concat 不为空，则将 xc 和 c_concat 沿维度 1 进行拼接
         if c_concat is not None:
-            xc = torch.cat([xc] + [c_concat], dim=1)
+            xc = torch.cat([xc] + [comfy.model_management.cast_to_device(c_concat, xc.device, xc.dtype)], dim=1)
 
         # 将 c_crossattn 赋值给 context
         context = c_crossattn
@@ -178,11 +181,12 @@ class BaseModel(torch.nn.Module):
 
         # 将 xc 转换为指定的数据类型
         xc = xc.to(dtype)
+        device = xc.device
         # 处理时间步 t 并转换为浮点类型
         t = self.model_sampling.timestep(t).float()
         if context is not None:
             # 将 context 转换为指定的数据类型
-            context = context.to(dtype)
+            context = comfy.model_management.cast_to_device(context, device, dtype)
 
         # 初始化一个空字典，用于存储额外条件
         extra_conds = {}
@@ -192,11 +196,11 @@ class BaseModel(torch.nn.Module):
 
             # 如果额外条件有 dtype 属性且不是整数类型，则将其转换为指定的数据类型
             if hasattr(extra, "dtype"):
-                extra = convert_tensor(extra, dtype)
+                extra = convert_tensor(extra, dtype, device)
             elif isinstance(extra, list):
                 ex = []
                 for ext in extra:
-                    ex.append(convert_tensor(ext, dtype))
+                    ex.append(convert_tensor(ext, dtype, device))
                 extra = ex
             # 将处理后的额外条件添加到字典中
             extra_conds[o] = extra
@@ -454,7 +458,7 @@ class SD21UNCLIP(BaseModel):
         unclip_conditioning = kwargs.get("unclip_conditioning", None)
         device = kwargs["device"]
         if unclip_conditioning is None:
-            return torch.zeros((1, self.adm_channels))
+            return torch.zeros((1, self.adm_channels), device=device)
         else:
             return unclip_adm(unclip_conditioning, device, self.noise_augmentor, kwargs.get("unclip_noise_augment_merge", 0.05), kwargs.get("seed", 0) - 10)
 
@@ -668,9 +672,11 @@ class IP2P:
 
         if image is None:
             image = torch.zeros_like(noise)
+        else:
+            image = image.to(device=device)
 
         if image.shape[1:] != noise.shape[1:]:
-            image = utils.common_upscale(image.to(device), noise.shape[-1], noise.shape[-2], "bilinear", "center")
+            image = utils.common_upscale(image, noise.shape[-1], noise.shape[-2], "bilinear", "center")
 
         image = utils.resize_to_batch_size(image, noise.shape[0])
         return self.process_ip2p_image_in(image)
@@ -749,7 +755,7 @@ class StableCascade_B(BaseModel):
         #size of prior doesn't really matter if zeros because it gets resized but I still want it to get batched
         prior = kwargs.get("stable_cascade_prior", torch.zeros((1, 16, (noise.shape[2] * 4) // 42, (noise.shape[3] * 4) // 42), dtype=noise.dtype, layout=noise.layout, device=noise.device))
 
-        out["effnet"] = comfy.conds.CONDRegular(prior)
+        out["effnet"] = comfy.conds.CONDRegular(prior.to(device=noise.device))
         out["sca"] = comfy.conds.CONDRegular(torch.zeros((1,)))
         return out
 
@@ -1153,8 +1159,9 @@ class WAN21(BaseModel):
                 image[:, i: i + 16] = self.process_latent_in(image[:, i: i + 16])
             image = utils.resize_to_batch_size(image, noise.shape[0])
 
-        if not self.image_to_video or extra_channels == image.shape[1]:
-            return image
+        if extra_channels != image.shape[1] + 4:
+            if not self.image_to_video or extra_channels == image.shape[1]:
+                return image
 
         if image.shape[1] > (extra_channels - 4):
             image = image[:, :(extra_channels - 4)]
@@ -1213,10 +1220,10 @@ class WAN21_Vace(WAN21):
 
         vace_frames_out = []
         for j in range(len(vace_frames)):
-            vf = vace_frames[j].clone()
+            vf = vace_frames[j].to(device=noise.device, dtype=noise.dtype, copy=True)
             for i in range(0, vf.shape[1], 16):
                 vf[:, i:i + 16] = self.process_latent_in(vf[:, i:i + 16])
-            vf = torch.cat([vf, mask[j]], dim=1)
+            vf = torch.cat([vf, mask[j].to(device=noise.device, dtype=noise.dtype)], dim=1)
             vace_frames_out.append(vf)
 
         vace_frames = torch.stack(vace_frames_out, dim=1)
@@ -1237,6 +1244,31 @@ class WAN21_Camera(WAN21):
         if camera_conditions is not None:
             out['camera_conditions'] = comfy.conds.CONDRegular(camera_conditions)
         return out
+
+class WAN22(BaseModel):
+    def __init__(self, model_config, model_type=ModelType.FLOW, image_to_video=False, device=None):
+        super().__init__(model_config, model_type, device=device, unet_model=comfy.ldm.wan.model.WanModel)
+        self.image_to_video = image_to_video
+
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        cross_attn = kwargs.get("cross_attn", None)
+        if cross_attn is not None:
+            out['c_crossattn'] = comfy.conds.CONDRegular(cross_attn)
+
+        denoise_mask = kwargs.get("concat_mask", kwargs.get("denoise_mask", None))
+        if denoise_mask is not None:
+            out["denoise_mask"] = comfy.conds.CONDRegular(denoise_mask)
+        return out
+
+    def process_timestep(self, timestep, x, denoise_mask=None, **kwargs):
+        if denoise_mask is None:
+            return timestep
+        temp_ts = (torch.mean(denoise_mask[:, :, :, :, :], dim=(1, 3, 4), keepdim=True) * timestep.view([timestep.shape[0]] + [1] * (denoise_mask.ndim - 1))).reshape(timestep.shape[0], -1)
+        return temp_ts
+
+    def scale_latent_inpaint(self, sigma, noise, latent_image, **kwargs):
+        return latent_image
 
 class Hunyuan3Dv2(BaseModel):
     def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
@@ -1332,4 +1364,15 @@ class Omnigen2(BaseModel):
         ref_latents = kwargs.get("reference_latents", None)
         if ref_latents is not None:
             out['ref_latents'] = list([1, 16, sum(map(lambda a: math.prod(a.size()), ref_latents)) // 16])
+        return out
+
+class QwenImage(BaseModel):
+    def __init__(self, model_config, model_type=ModelType.FLUX, device=None):
+        super().__init__(model_config, model_type, device=device, unet_model=comfy.ldm.qwen_image.model.QwenImageTransformer2DModel)
+
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        cross_attn = kwargs.get("cross_attn", None)
+        if cross_attn is not None:
+            out['c_crossattn'] = comfy.conds.CONDRegular(cross_attn)
         return out

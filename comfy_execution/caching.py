@@ -1,6 +1,7 @@
 import itertools
 from typing import Sequence, Mapping, Dict
 from comfy_execution.graph import DynamicPrompt
+from abc import ABC, abstractmethod
 
 import nodes
 
@@ -16,12 +17,13 @@ def include_unique_id_in_input(class_type: str) -> bool:
     NODE_CLASS_CONTAINS_UNIQUE_ID[class_type] = "UNIQUE_ID" in class_def.INPUT_TYPES().get("hidden", {}).values()
     return NODE_CLASS_CONTAINS_UNIQUE_ID[class_type]
 
-class CacheKeySet:
+class CacheKeySet(ABC):
     def __init__(self, dynprompt, node_ids, is_changed_cache):
         self.keys = {}
         self.subcache_keys = {}
 
-    def add_keys(self, node_ids):
+    @abstractmethod
+    async def add_keys(self, node_ids):
         raise NotImplementedError()
 
     def all_node_ids(self):
@@ -60,9 +62,8 @@ class CacheKeySetID(CacheKeySet):
     def __init__(self, dynprompt, node_ids, is_changed_cache):
         super().__init__(dynprompt, node_ids, is_changed_cache)
         self.dynprompt = dynprompt
-        self.add_keys(node_ids)
 
-    def add_keys(self, node_ids):
+    async def add_keys(self, node_ids):
         for node_id in node_ids:
             if node_id in self.keys:
                 continue
@@ -77,37 +78,36 @@ class CacheKeySetInputSignature(CacheKeySet):
         super().__init__(dynprompt, node_ids, is_changed_cache)
         self.dynprompt = dynprompt
         self.is_changed_cache = is_changed_cache
-        self.add_keys(node_ids)
 
     def include_node_id_in_input(self) -> bool:
         return False
 
-    def add_keys(self, node_ids):
+    async def add_keys(self, node_ids):
         for node_id in node_ids:
             if node_id in self.keys:
                 continue
             if not self.dynprompt.has_node(node_id):
                 continue
             node = self.dynprompt.get_node(node_id)
-            self.keys[node_id] = self.get_node_signature(self.dynprompt, node_id)
+            self.keys[node_id] = await self.get_node_signature(self.dynprompt, node_id)
             self.subcache_keys[node_id] = (node_id, node["class_type"])
 
-    def get_node_signature(self, dynprompt, node_id):
+    async def get_node_signature(self, dynprompt, node_id):
         signature = []
         ancestors, order_mapping = self.get_ordered_ancestry(dynprompt, node_id)
-        signature.append(self.get_immediate_node_signature(dynprompt, node_id, order_mapping))
+        signature.append(await self.get_immediate_node_signature(dynprompt, node_id, order_mapping))
         for ancestor_id in ancestors:
-            signature.append(self.get_immediate_node_signature(dynprompt, ancestor_id, order_mapping))
+            signature.append(await self.get_immediate_node_signature(dynprompt, ancestor_id, order_mapping))
         return to_hashable(signature)
 
-    def get_immediate_node_signature(self, dynprompt, node_id, ancestor_order_mapping):
+    async def get_immediate_node_signature(self, dynprompt, node_id, ancestor_order_mapping):
         if not dynprompt.has_node(node_id):
             # This node doesn't exist -- we can't cache it.
             return [float("NaN")]
         node = dynprompt.get_node(node_id)
         class_type = node["class_type"]
         class_def = nodes.NODE_CLASS_MAPPINGS[class_type]
-        signature = [class_type, self.is_changed_cache.get(node_id)]
+        signature = [class_type, await self.is_changed_cache.get(node_id)]
         if self.include_node_id_in_input() or (hasattr(class_def, "NOT_IDEMPOTENT") and class_def.NOT_IDEMPOTENT) or include_unique_id_in_input(class_type):
             signature.append(node_id)
         inputs = node["inputs"]
@@ -168,7 +168,7 @@ class BasicCache:
         self.cache = {}
         self.subcaches = {}
 
-    def set_prompt(self, dynprompt, node_ids, is_changed_cache):
+    async def set_prompt(self, dynprompt, node_ids, is_changed_cache):
         """
         设置动态提示信息，并初始化缓存键集合。
 
@@ -179,6 +179,7 @@ class BasicCache:
         """
         self.dynprompt = dynprompt
         self.cache_key_set = self.key_class(dynprompt, node_ids, is_changed_cache)
+        await self.cache_key_set.add_keys(node_ids)
         self.is_changed_cache = is_changed_cache
         self.initialized = True
 
@@ -258,7 +259,7 @@ class BasicCache:
         else:
             return None
 
-    def _ensure_subcache(self, node_id, children_ids):
+    async def _ensure_subcache(self, node_id, children_ids):
         """
         确保为指定节点 ID 创建子缓存，并设置子缓存的提示信息。
 
@@ -274,7 +275,7 @@ class BasicCache:
         if subcache is None:
             subcache = BasicCache(self.key_class)
             self.subcaches[subcache_key] = subcache
-        subcache.set_prompt(self.dynprompt, children_ids, self.is_changed_cache)
+        await subcache.set_prompt(self.dynprompt, children_ids, self.is_changed_cache)
         return subcache
 
     def _get_subcache(self, node_id):
@@ -341,10 +342,10 @@ class HierarchicalCache(BasicCache):
         assert cache is not None
         cache._set_immediate(node_id, value)
 
-    def ensure_subcache_for(self, node_id, children_ids):
+    async def ensure_subcache_for(self, node_id, children_ids):
         cache = self._get_cache_for(node_id)
         assert cache is not None
-        return cache._ensure_subcache(node_id, children_ids)
+        return await cache._ensure_subcache(node_id, children_ids)
 
 class LRUCache(BasicCache):
     """
@@ -375,7 +376,7 @@ class LRUCache(BasicCache):
         self.used_generation = {}
         self.children = {}
 
-    def set_prompt(self, dynprompt, node_ids, is_changed_cache):
+    async def set_prompt(self, dynprompt, node_ids, is_changed_cache):
         """
         设置指定节点 ID 的提示信息，并标记这些节点为最近使用。
 
@@ -384,7 +385,7 @@ class LRUCache(BasicCache):
         - node_ids: 节点 ID 列表。
         - is_changed_cache: 标记缓存是否已更改。
         """
-        super().set_prompt(dynprompt, node_ids, is_changed_cache)
+        await super().set_prompt(dynprompt, node_ids, is_changed_cache)
         self.generation += 1
         for node_id in node_ids:
             self._mark_used(node_id)
@@ -436,7 +437,7 @@ class LRUCache(BasicCache):
         self._mark_used(node_id)
         return self._set_immediate(node_id, value)
 
-    def ensure_subcache_for(self, node_id, children_ids):
+    async def ensure_subcache_for(self, node_id, children_ids):
         """
         确保为跟踪活跃节点设置子缓存。
 
@@ -449,9 +450,9 @@ class LRUCache(BasicCache):
         """
         # 使用子缓存来跟踪活跃节点
         # Just uses subcaches for tracking 'live' nodes
-        super()._ensure_subcache(node_id, children_ids)
+        await super()._ensure_subcache(node_id, children_ids)
 
-        self.cache_key_set.add_keys(children_ids)
+        await self.cache_key_set.add_keys(children_ids)
         self._mark_used(node_id)
         cache_key = self.cache_key_set.get_data_key(node_id)
         self.children[cache_key] = []
@@ -481,7 +482,7 @@ class DependencyAwareCache(BasicCache):
         self.ancestors = {}    # Maps node_id -> set of ancestor node_ids
         self.executed_nodes = set()  # Tracks nodes that have been executed
 
-    def set_prompt(self, dynprompt, node_ids, is_changed_cache):
+    async def set_prompt(self, dynprompt, node_ids, is_changed_cache):
         """
         Clear the entire cache and rebuild the dependency graph.
 
@@ -498,7 +499,7 @@ class DependencyAwareCache(BasicCache):
         self.executed_nodes.clear()
 
         # Call the parent method to initialize the cache with the new prompt
-        super().set_prompt(dynprompt, node_ids, is_changed_cache)
+        await super().set_prompt(dynprompt, node_ids, is_changed_cache)
 
         # Rebuild the dependency graph
         self._build_dependency_graph(dynprompt, node_ids)
@@ -549,7 +550,7 @@ class DependencyAwareCache(BasicCache):
         """
         return self._get_immediate(node_id)
 
-    def ensure_subcache_for(self, node_id, children_ids):
+    async def ensure_subcache_for(self, node_id, children_ids):
         """
         Ensure a subcache exists for a node and update dependencies.
 
@@ -560,7 +561,7 @@ class DependencyAwareCache(BasicCache):
         Returns:
             The subcache object for the node.
         """
-        subcache = super()._ensure_subcache(node_id, children_ids)
+        subcache = await super()._ensure_subcache(node_id, children_ids)
         for child_id in children_ids:
             self.descendants[node_id].add(child_id)
             self.ancestors[child_id].add(node_id)

@@ -413,7 +413,9 @@ def detect_unet_config(state_dict, key_prefix, metadata=None):
         dit_config = {}
         dit_config["image_model"] = "wan2.1"
         dim = state_dict['{}head.modulation'.format(key_prefix)].shape[-1]
+        out_dim = state_dict['{}head.head.weight'.format(key_prefix)].shape[0] // 4
         dit_config["dim"] = dim
+        dit_config["out_dim"] = out_dim
         dit_config["num_heads"] = dim // 128
         dit_config["ffn_dim"] = state_dict['{}blocks.0.ffn.0.weight'.format(key_prefix)].shape[0]
         dit_config["num_layers"] = count_blocks(state_dict_keys, '{}blocks.'.format(key_prefix) + '{}.')
@@ -544,6 +546,11 @@ def detect_unet_config(state_dict, key_prefix, metadata=None):
         dit_config["patch_size"] = 2
         dit_config["text_feat_dim"] = 2048
         dit_config["timestep_scale"] = 1000.0
+        return dit_config
+
+    if '{}txt_norm.weight'.format(key_prefix) in state_dict_keys:  # Qwen Image
+        dit_config = {}
+        dit_config["image_model"] = "qwen_image"
         return dit_config
 
     # 如果特定键不存在于state_dict_keys中，则返回None
@@ -1003,7 +1010,7 @@ def convert_diffusers_mmdit(state_dict, output_prefix=""):
         depth_single_blocks = count_blocks(state_dict, 'single_transformer_blocks.{}.')
         hidden_size = state_dict["x_embedder.bias"].shape[0]
         sd_map = comfy.utils.flux_to_diffusers({"depth": depth, "depth_single_blocks": depth_single_blocks, "hidden_size": hidden_size}, output_prefix=output_prefix)
-    elif 'transformer_blocks.0.attn.add_q_proj.weight' in state_dict: #SD3
+    elif 'transformer_blocks.0.attn.add_q_proj.weight' in state_dict and 'pos_embed.proj.weight' in state_dict: #SD3
         num_blocks = count_blocks(state_dict, 'transformer_blocks.{}.')
         depth = state_dict["pos_embed.proj.weight"].shape[0] // 64
         sd_map = comfy.utils.mmdit_to_diffusers({"depth": depth, "num_blocks": num_blocks}, output_prefix=output_prefix)
