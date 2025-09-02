@@ -162,7 +162,7 @@ class Flux(nn.Module):
                 if i < len(control_i):
                     add = control_i[i]
                     if add is not None:
-                        img += add
+                        img[:, :add.shape[1]] += add
 
         if img.dtype == torch.float16:
             img = torch.nan_to_num(img, nan=0.0, posinf=65504, neginf=-65504)
@@ -193,7 +193,7 @@ class Flux(nn.Module):
                 if i < len(control_o):
                     add = control_o[i]
                     if add is not None:
-                        img[:, txt.shape[1] :, ...] += add
+                        img[:, txt.shape[1] : txt.shape[1] + add.shape[1], ...] += add
 
         img = img[:, txt.shape[1] :, ...]
 
@@ -237,12 +237,18 @@ class Flux(nn.Module):
             h = 0
             w = 0
             index = 0
-            index_ref_method = kwargs.get("ref_latents_method", "offset") == "index"
+            ref_latents_method = kwargs.get("ref_latents_method", "offset")
             for ref in ref_latents:
-                if index_ref_method:
+                if ref_latents_method == "index":
                     index += 1
                     h_offset = 0
                     w_offset = 0
+                elif ref_latents_method == "uso":
+                    index = 0
+                    h_offset = h_len * patch_size + h
+                    w_offset = w_len * patch_size + w
+                    h += ref.shape[-2]
+                    w += ref.shape[-1]
                 else:
                     index = 1
                     h_offset = 0
