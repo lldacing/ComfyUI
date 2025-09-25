@@ -108,6 +108,7 @@ class Flux(nn.Module):
         if y is None:
             y = torch.zeros((img.shape[0], self.params.vec_in_dim), device=img.device, dtype=img.dtype)
 
+        patches = transformer_options.get("patches", {})
         patches_replace = transformer_options.get("patches_replace", {})
         if img.ndim != 3 or txt.ndim != 3:
             raise ValueError("Input img and txt tensors must have 3 dimensions.")
@@ -120,9 +121,17 @@ class Flux(nn.Module):
             if guidance is not None:
                 vec = vec + self.guidance_in(timestep_embedding(guidance, 256).to(img.dtype))
 
-        vec = vec + self.vector_in(y[:,:self.params.vec_in_dim])
+        vec = vec + self.vector_in(y[:, :self.params.vec_in_dim])
         # (batch size, sequence_len, embed_dims)
         txt = self.txt_in(txt)
+
+        if "post_input" in patches:
+            for p in patches["post_input"]:
+                out = p({"img": img, "txt": txt, "img_ids": img_ids, "txt_ids": txt_ids})
+                img = out["img"]
+                txt = out["txt"]
+                img_ids = out["img_ids"]
+                txt_ids = out["txt_ids"]
 
         if img_ids is not None:
             ids = torch.cat((txt_ids, img_ids), dim=1)
@@ -139,14 +148,16 @@ class Flux(nn.Module):
                                                    txt=args["txt"],
                                                    vec=args["vec"],
                                                    pe=args["pe"],
-                                                   attn_mask=args.get("attn_mask"))
+                                                   attn_mask=args.get("attn_mask"),
+                                                   transformer_options=args.get("transformer_options"))
                     return out
 
                 out = blocks_replace[("double_block", i)]({"img": img,
                                                            "txt": txt,
                                                            "vec": vec,
                                                            "pe": pe,
-                                                           "attn_mask": attn_mask},
+                                                           "attn_mask": attn_mask,
+                                                           "transformer_options": transformer_options},
                                                           {"original_block": block_wrap})
                 txt = out["txt"]
                 img = out["img"]
@@ -155,7 +166,8 @@ class Flux(nn.Module):
                                  txt=txt,
                                  vec=vec,
                                  pe=pe,
-                                 attn_mask=attn_mask)
+                                 attn_mask=attn_mask,
+                                 transformer_options=transformer_options)
 
             if control is not None: # Controlnet
                 control_i = control.get("input")
@@ -176,17 +188,19 @@ class Flux(nn.Module):
                     out["img"] = block(args["img"],
                                        vec=args["vec"],
                                        pe=args["pe"],
-                                       attn_mask=args.get("attn_mask"))
+                                       attn_mask=args.get("attn_mask"),
+                                       transformer_options=args.get("transformer_options"))
                     return out
 
                 out = blocks_replace[("single_block", i)]({"img": img,
                                                            "vec": vec,
                                                            "pe": pe,
-                                                           "attn_mask": attn_mask},
+                                                           "attn_mask": attn_mask,
+                                                           "transformer_options": transformer_options},
                                                           {"original_block": block_wrap})
                 img = out["img"]
             else:
-                img = block(img, vec=vec, pe=pe, attn_mask=attn_mask)
+                img = block(img, vec=vec, pe=pe, attn_mask=attn_mask, transformer_options=transformer_options)
 
             if control is not None: # Controlnet
                 control_o = control.get("output")
@@ -243,7 +257,7 @@ class Flux(nn.Module):
                     index += 1
                     h_offset = 0
                     w_offset = 0
-                elif ref_latents_method == "uso":
+                elif ref_latents_method == "uxo":
                     index = 0
                     h_offset = h_len * patch_size + h
                     w_offset = w_len * patch_size + w
